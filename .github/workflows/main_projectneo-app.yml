@@ -55,6 +55,6 @@ jobs:
         id: deploy-to-webapp
         uses: azure/webapps-deploy@v3
         with:
-          app-name: 'projectneo-functions'
+          app-name: 'projectneo-app'
           publish-profile: ${{ secrets.AZURE_PUBLISH_PROFILE }}
           package: ./publish
