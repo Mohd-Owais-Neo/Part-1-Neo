@@ -112,7 +112,11 @@
         "frameworks": {
           "net8.0": {
             "targetAlias": "net8.0",
-            "projectReferences": {}
+            "projectReferences": {
+              "C:\\Projects\\Part-1-Neo\\Part-1-Neo\\NEO.Core\\NEO.Core.csproj": {
+                "projectPath": "C:\\Projects\\Part-1-Neo\\Part-1-Neo\\NEO.Core\\NEO.Core.csproj"
+              }
+            }
           }
         },
         "warningProperties": {

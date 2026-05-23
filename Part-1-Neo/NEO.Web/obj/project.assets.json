@@ -1733,7 +1733,8 @@
           "Microsoft.Azure.Functions.Worker.Extensions.Http.AspNetCore": "2.0.2",
           "Microsoft.Azure.Functions.Worker.Extensions.Timer": "4.3.1",
           "Microsoft.Azure.Functions.Worker.Sdk": "2.0.5",
-          "Microsoft.Data.SqlClient": "7.0.1"
+          "Microsoft.Data.SqlClient": "7.0.1",
+          "NEO.Core": "1.0.0"
         },
         "compile": {
           "bin/placeholder/Neo.Functions.dll": {}

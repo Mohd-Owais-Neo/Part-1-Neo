@@ -19,4 +19,8 @@
     <PackageReference Include="Microsoft.Data.SqlClient" Version="7.0.1" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\NEO.Core\NEO.Core.csproj" />
+  </ItemGroup>
+
 </Project>
