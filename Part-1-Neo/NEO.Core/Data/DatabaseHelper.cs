@@ -60,6 +60,34 @@ namespace NEO.Core.Data
         }
 
         // =============================================
+        // SMART CACHE — Check if today's data exists
+        // =============================================
+        public async Task<bool> HasTodaysDataAsync(string tableName, DateTime businessDate)
+        {
+            try
+            {
+                using var conn = new SqlConnection(_connectionString);
+                await conn.OpenAsync();
+
+                var sql = $@"
+            SELECT COUNT(*)
+            FROM {tableName}
+            WHERE business_date = @date";
+
+                using var cmd = new SqlCommand(sql, conn);
+                cmd.Parameters.AddWithValue("@date", businessDate.Date);
+
+                var count = (int)await cmd.ExecuteScalarAsync();
+                return count > 0;
+            }
+            catch
+            {
+                // Table doesn't exist yet → no data
+                return false;
+            }
+        }
+
+        // =============================================
         // SECTOR TABLES — Insert
         // =============================================
         public async Task InsertSectorRankingAsync(
@@ -424,6 +452,62 @@ namespace NEO.Core.Data
                 cmd.Parameters.AddWithValue("@avgTurnover", stock.AvgTurnover30d);
                 cmd.Parameters.AddWithValue("@score", stock.Score);
                 cmd.Parameters.AddWithValue("@rank", stock.Rank);
+                await cmd.ExecuteNonQueryAsync();
+            }
+        }
+
+        public async Task InsertTradeSignalsAsync(
+        string runId,
+        DateTime businessDate,
+        List<TradeSignal> signals)
+        {
+            using var conn = new SqlConnection(_connectionString);
+            await conn.OpenAsync();
+
+            var createSql = @"
+        IF NOT EXISTS (
+            SELECT * FROM sysobjects
+            WHERE name='Table_5_Trade_Signals' AND xtype='U'
+        )
+        CREATE TABLE Table_5_Trade_Signals (
+            id            INT IDENTITY(1,1) PRIMARY KEY,
+            run_id        NVARCHAR(50),
+            business_date DATE,
+            symbol        NVARCHAR(20),
+            stock_name    NVARCHAR(100),
+            sector_name   NVARCHAR(100),
+            rank          INT,
+            score         DECIMAL(10,6),
+            pct_1d        DECIMAL(10,4),
+            signal        NVARCHAR(10),
+            reason        NVARCHAR(500),
+            created_at    DATETIME DEFAULT GETDATE()
+        )";
+
+            using (var cmd = new SqlCommand(createSql, conn))
+                await cmd.ExecuteNonQueryAsync();
+
+            foreach (var s in signals)
+            {
+                var sql = @"
+            INSERT INTO Table_5_Trade_Signals
+                (run_id, business_date, symbol, stock_name,
+                 sector_name, rank, score, pct_1d, signal, reason)
+            VALUES
+                (@runId, @businessDate, @symbol, @stockName,
+                 @sectorName, @rank, @score, @pct1d, @signal, @reason)";
+
+                using var cmd = new SqlCommand(sql, conn);
+                cmd.Parameters.AddWithValue("@runId", runId);
+                cmd.Parameters.AddWithValue("@businessDate", businessDate);
+                cmd.Parameters.AddWithValue("@symbol", s.Symbol);
+                cmd.Parameters.AddWithValue("@stockName", s.StockName);
+                cmd.Parameters.AddWithValue("@sectorName", s.SectorName);
+                cmd.Parameters.AddWithValue("@rank", s.Rank);
+                cmd.Parameters.AddWithValue("@score", s.Score);
+                cmd.Parameters.AddWithValue("@pct1d", s.Pct1d);
+                cmd.Parameters.AddWithValue("@signal", s.Signal);
+                cmd.Parameters.AddWithValue("@reason", s.Reason);
                 await cmd.ExecuteNonQueryAsync();
             }
         }

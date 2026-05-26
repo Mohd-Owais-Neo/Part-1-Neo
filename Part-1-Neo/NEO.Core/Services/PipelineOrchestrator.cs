@@ -1,4 +1,5 @@
-﻿using NEO.Core.Data;
+﻿using Microsoft.IdentityModel.Protocols.Configuration;
+using NEO.Core.Data;
 using NEO.Core.Models;
 using System;
 using System.Collections.Generic;
@@ -14,14 +15,29 @@ namespace NEO.Core.Services
         private readonly ApiDataService _api;
         private readonly IntersectionService _intersection;
         private readonly TopStockSelectorService _stockSelector;
+        private readonly RiskManagementService _riskManager;
+        private readonly EmailAlertService _emailAlert;
 
-        public PipelineOrchestrator(string connectionString, string apiKey)
+        public PipelineOrchestrator(
+            string connectionString,
+            string apiKey,
+            string smtpHost,
+            int smtpPort,
+            string fromEmail,
+            string fromPassword,
+            string toEmail)
         {
             _db = new DatabaseHelper(connectionString);
             _api = new ApiDataService(apiKey);
             _intersection = new IntersectionService();
             _stockSelector = new TopStockSelectorService(_api);
+            _riskManager = new RiskManagementService();
+            _emailAlert = new EmailAlertService(
+                                 smtpHost, smtpPort,
+                                 fromEmail, fromPassword, toEmail);
         }
+
+
 
         // =============================================
         // MASTER RUN — Called by Azure Function
@@ -55,9 +71,20 @@ namespace NEO.Core.Services
                     runId, businessDate, "CHINA", "Table_2_Sector_1D_China");
 
                 // STAGE 4 — Intersection Logic
-                await Stage4_IntersectionLogic(
+                var selectedSectors = await Stage4_IntersectionLogic(
                     runId, businessDate,
                     usSectors, indiaSectors, chinaSectors);
+
+                //STAGE 5 - Intersection Logic
+                var topStocks = await Stage5_SelectTopStocks(
+                    runId, businessDate, selectedSectors);
+
+
+                //stage 8 - Risk Management
+                var signals = await Stage8_RiskManagement(runId, businessDate, topStocks);
+
+                //stage 9 - Email Alert
+                await Stage9_SendEmail(runId, businessDate, selectedSectors, signals);
 
                 // Log overall success
                 await _db.InsertRunLogAsync(new RunLog
@@ -199,13 +226,27 @@ namespace NEO.Core.Services
         // STAGE 1/2/3 — Fetch Sector Rankings
         // =============================================
         private async Task<List<Sector>> Stage1_FetchSectors(
-            string runId,
-            DateTime businessDate,
-            string market,
-            string tableName)
+    string runId,
+    DateTime businessDate,
+    string market,
+    string tableName)
         {
             Console.WriteLine($"\n🔵 Fetching {market} Sector Rankings...");
 
+            // ✅ SMART CACHE — skip API if today's data exists
+            var hasData = await _db.HasTodaysDataAsync(tableName, businessDate);
+            if (hasData)
+            {
+                Console.WriteLine($"   ✅ Cache hit! {market} data exists for today");
+                Console.WriteLine($"   → Loading from DB instead of API...");
+                var cached = await _db.LoadSectorsFromDbAsync(tableName);
+                Console.WriteLine($"   ✅ Loaded {cached.Count} sectors from cache");
+                return cached;
+            }
+
+            Console.WriteLine($"   → No cache found — calling API...");
+
+            // Call API
             var sectors = await _api.FetchSectorPerformanceAsync(market);
 
             if (sectors.Count == 0)
@@ -235,17 +276,15 @@ namespace NEO.Core.Services
             Console.WriteLine($"   → {sectors.Count} sectors fetched");
             Console.WriteLine($"   → {filtered.Count} sectors after filtering");
 
-            // Ensure table exists and save
+            // Save to DB
             await _db.EnsureTableExistsAsync(tableName);
-            await _db.InsertSectorRankingAsync(
-                tableName, runId, businessDate, filtered);
+            await _db.InsertSectorRankingAsync(tableName, runId, businessDate, filtered);
             Console.WriteLine($"   ✅ Saved to {tableName}");
 
             // Print top 5
             Console.WriteLine($"\n   📊 {market} Sector Rankings:");
             foreach (var s in filtered.Take(5))
-                Console.WriteLine(
-                    $"   Rank {s.Rank}: {s.SectorName} → {s.PctChange}%");
+                Console.WriteLine($"   Rank {s.Rank}: {s.SectorName} → {s.PctChange}%");
 
             await _db.InsertRunLogAsync(new RunLog
             {
@@ -301,24 +340,22 @@ namespace NEO.Core.Services
         // =============================================
         // STAGE 5 — Top Stock Selection
         // =============================================
-        private async Task Stage5_SelectTopStocks(
-            string runId,
-            DateTime businessDate,
-            List<string> selectedSectors)
+        private async Task<List<Stock>> Stage5_SelectTopStocks(
+        string runId,
+        DateTime businessDate,
+        List<string> selectedSectors)
         {
             Console.WriteLine("\n🔵 STAGE 5 — Top Stock Selection...");
 
             if (selectedSectors.Count == 0)
             {
-                Console.WriteLine("   ⚠️ No sectors selected — skipping stock selection");
-                return;
+                Console.WriteLine("   ⚠️ No sectors selected — skipping");
+                return new List<Stock>();
             }
 
-            // Use mock data in DB mode (no API calls)
             var topStocks = _stockSelector.SelectTopStocksFromMockData(
                 selectedSectors, topN: 10);
 
-            // Save to DB
             await _db.EnsureTableExistsAsync("Table_4_Top_Stocks");
             await _db.InsertTopStocksAsync(runId, businessDate, topStocks);
 
@@ -334,6 +371,64 @@ namespace NEO.Core.Services
             });
 
             Console.WriteLine("✅ STAGE 5 COMPLETE");
+            return topStocks;
         }
+        // =============================================
+        // STAGE 8 — Risk Management
+        // =============================================
+        private async Task<List<TradeSignal>> Stage8_RiskManagement(
+        string runId,
+        DateTime businessDate,
+        List<Stock> stocks)
+        {
+            Console.WriteLine("\n🔵 STAGE 8 — Risk Management...");
+
+            if (stocks.Count == 0)
+            {
+                Console.WriteLine("   ⚠️ No stocks to evaluate");
+                return new List<TradeSignal>();
+            }
+
+            var signals = _riskManager.ApplyRiskRules(stocks);
+
+            await _db.InsertTradeSignalsAsync(runId, businessDate, signals);
+
+            await _db.InsertRunLogAsync(new RunLog
+            {
+                RunId = runId,
+                BusinessDate = businessDate,
+                Stage = "STAGE_8",
+                Message = $"BUY:{signals.Count(s => s.Signal == "BUY")} " +
+                               $"WATCH:{signals.Count(s => s.Signal == "WATCH")} " +
+                               $"SKIP:{signals.Count(s => s.Signal == "SKIP")}",
+                Status = "SUCCESS"
+            });
+
+            Console.WriteLine("✅ STAGE 8 COMPLETE");
+            return signals;
+        }
+
+        // =============================================
+        // STAGE 9 — Email Alert
+        // =============================================
+        private async Task Stage9_SendEmail(
+            string runId,
+            DateTime businessDate,
+            List<string> selectedSectors,
+            List<TradeSignal> signals)
+        {
+            await _emailAlert.SendDailySignalAsync(
+                runId, businessDate, selectedSectors, signals);
+
+            await _db.InsertRunLogAsync(new RunLog
+            {
+                RunId = runId,
+                BusinessDate = businessDate,
+                Stage = "STAGE_9",
+                Message = $"Email sent to {signals.Count} signals",
+                Status = "SUCCESS"
+            });
+        }
+
     }
 }

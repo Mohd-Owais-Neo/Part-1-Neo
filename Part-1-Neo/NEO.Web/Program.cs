@@ -4,18 +4,23 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddRazorPages();
 var app = builder.Build();
 
-// -----------------------------------------------
-// PIPELINE — DB MODE (uses cached sector data)
-// -----------------------------------------------
 var connStr = builder.Configuration
-                     .GetConnectionString("DefaultConnection")!;
+                          .GetConnectionString("DefaultConnection")!;
 var apiKey = builder.Configuration["AppSettings:AlphaVantageApiKey"]!;
+var smtpHost = builder.Configuration["EmailSettings:SmtpHost"] ?? "smtp.gmail.com";
+var smtpPort = int.Parse(builder.Configuration["EmailSettings:SmtpPort"] ?? "587");
+var fromEmail = builder.Configuration["EmailSettings:FromEmail"] ?? "";
+var fromPassword = builder.Configuration["EmailSettings:FromPassword"] ?? "";
+var toEmail = builder.Configuration["EmailSettings:ToEmail"] ?? "";
 
-Console.WriteLine("Starting ProjectNEO (DB Mode)...");
+Console.WriteLine("Starting ProjectNEO...");
 
-var orchestrator = new PipelineOrchestrator(connStr, apiKey);
-await orchestrator.RunFromDbDataAsync();
-// -----------------------------------------------
+var orchestrator = new PipelineOrchestrator(
+    connStr, apiKey,
+    smtpHost, smtpPort,
+    fromEmail, fromPassword, toEmail);
+
+await orchestrator.RunDailyPipelineAsync();
 
 app.UseHttpsRedirection();
 app.UseStaticFiles();

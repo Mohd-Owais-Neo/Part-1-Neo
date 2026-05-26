@@ -37,7 +37,16 @@ namespace NEO.Functions
                 var apiKey = _configuration["AppSettings:AlphaVantageApiKey"]
                     ?? throw new Exception("API Key not found!");
 
-                var orchestrator = new PipelineOrchestrator(connStr, apiKey);
+                var smtpHost = _configuration["EmailSettings:SmtpHost"] ?? "smtp.gmail.com";
+                var smtpPort = int.Parse(_configuration["EmailSettings:SmtpPort"] ?? "587");
+                var fromEmail = _configuration["EmailSettings:FromEmail"] ?? "";
+                var fromPassword = _configuration["EmailSettings:FromPassword"] ?? "";
+                var toEmail = _configuration["EmailSettings:ToEmail"] ?? "";
+
+                var orchestrator = new PipelineOrchestrator(
+                    connStr, apiKey,
+                    smtpHost, smtpPort,
+                    fromEmail, fromPassword, toEmail);
                 await orchestrator.RunDailyPipelineAsync();
 
                 _logger.LogInformation("ProjectNEO Daily Run completed successfully");
