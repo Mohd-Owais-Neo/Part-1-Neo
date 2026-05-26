@@ -1,5 +1,6 @@
 ﻿using Microsoft.Data.SqlClient;
 using NEO.Core.Models;
+using NEO.Core.Services;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -211,6 +212,220 @@ namespace NEO.Core.Data
             var sql = $"SELECT COUNT(*) FROM {tableName}";
             using var cmd = new SqlCommand(sql, conn);
             return (int)await cmd.ExecuteScalarAsync();
+        }
+
+        // =============================================
+        // ENSURE TABLE EXISTS — Auto create if missing
+        // =============================================
+        public async Task EnsureTableExistsAsync(string tableName)
+        {
+            using var conn = new SqlConnection(_connectionString);
+            await conn.OpenAsync();
+
+            var sql = $@"
+        IF NOT EXISTS (
+            SELECT * FROM sysobjects
+            WHERE name='{tableName}' AND xtype='U'
+        )
+        CREATE TABLE {tableName} (
+            id            INT IDENTITY(1,1) PRIMARY KEY,
+            run_id        NVARCHAR(50),
+            business_date DATE,
+            sector_name   NVARCHAR(100),
+            pct_change    DECIMAL(10,4),
+            rank          INT,
+            created_at    DATETIME DEFAULT GETDATE()
+        )";
+
+            using var cmd = new SqlCommand(sql, conn);
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        // =============================================
+        // LOAD SECTORS FROM DB — Skip API call
+        // =============================================
+        public async Task<List<Sector>> LoadSectorsFromDbAsync(string tableName)
+        {
+            var result = new List<Sector>();
+
+            try
+            {
+                using var conn = new SqlConnection(_connectionString);
+                await conn.OpenAsync();
+
+                // Get most recent business date in table
+                var dateSql = $@"
+            SELECT MAX(business_date)
+            FROM {tableName}";
+
+                using var dateCmd = new SqlCommand(dateSql, conn);
+                var latestDate = await dateCmd.ExecuteScalarAsync();
+
+                if (latestDate == null || latestDate == DBNull.Value)
+                {
+                    Console.WriteLine($"   ⚠️ No data found in {tableName}");
+                    return result;
+                }
+
+                Console.WriteLine($"   → Loading from {tableName} (date: {latestDate})...");
+
+                var sql = $@"
+            SELECT sector_name, pct_change, rank
+            FROM {tableName}
+            WHERE business_date = @date
+            ORDER BY rank ASC";
+
+                using var cmd = new SqlCommand(sql, conn);
+                cmd.Parameters.AddWithValue("@date", latestDate);
+
+                using var reader = await cmd.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    result.Add(new Sector
+                    {
+                        SectorName = reader.GetString(0),
+                        PctChange = reader.GetDecimal(1),
+                        Pct1d = reader.GetDecimal(1),
+                        Rank = reader.GetInt32(2)
+                    });
+                }
+
+                Console.WriteLine($"   ✅ Loaded {result.Count} sectors from {tableName}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"   ❌ Error loading from {tableName}: {ex.Message}");
+            }
+
+            return result;
+        }
+
+        // =============================================
+        // INSERT INTERSECTION RESULT
+        // =============================================
+        public async Task InsertIntersectionResultAsync(
+            string runId,
+            DateTime businessDate,
+            List<string> selectedSectors,
+            List<SectorScore> scores)
+        {
+            using var conn = new SqlConnection(_connectionString);
+            await conn.OpenAsync();
+
+            // Ensure table exists
+            var createSql = @"
+    IF EXISTS (
+        SELECT * FROM sysobjects
+        WHERE name='Table_3_Sector_Intersection' AND xtype='U'
+    )
+    DROP TABLE Table_3_Sector_Intersection;
+
+    CREATE TABLE Table_3_Sector_Intersection (
+        id             INT IDENTITY(1,1) PRIMARY KEY,
+        run_id         NVARCHAR(50),
+        business_date  DATE,
+        sector_name    NVARCHAR(100),
+        us_pct         DECIMAL(10,4),
+        india_pct      DECIMAL(10,4),
+        china_pct      DECIMAL(10,4),
+        combined_score DECIMAL(10,4),
+        is_selected    BIT,
+        rank           INT,
+        created_at     DATETIME DEFAULT GETDATE()
+    )";
+
+            using (var cmd = new SqlCommand(createSql, conn))
+                await cmd.ExecuteNonQueryAsync();
+
+            // Insert each scored sector
+            int rank = 1;
+            foreach (var score in scores)
+            {
+                var isSelected = selectedSectors.Contains(
+                    score.SectorName,
+                    StringComparer.OrdinalIgnoreCase) ? 1 : 0;
+
+                var sql = @"
+            INSERT INTO Table_3_Sector_Intersection
+                (run_id, business_date, sector_name,
+                 us_pct, india_pct, china_pct,
+                 combined_score, is_selected, rank)
+            VALUES
+                (@runId, @businessDate, @sectorName,
+                 @usPct, @indiaPct, @chinaPct,
+                 @combinedScore, @isSelected, @rank)";
+
+                using var cmd = new SqlCommand(sql, conn);
+                cmd.Parameters.AddWithValue("@runId", runId);
+                cmd.Parameters.AddWithValue("@businessDate", businessDate);
+                cmd.Parameters.AddWithValue("@sectorName", score.SectorName);
+                cmd.Parameters.AddWithValue("@usPct", score.USPct);
+                cmd.Parameters.AddWithValue("@indiaPct", score.IndiaPct);
+                cmd.Parameters.AddWithValue("@chinaPct", score.ChinaPct);
+                cmd.Parameters.AddWithValue("@combinedScore", score.CombinedScore);
+                cmd.Parameters.AddWithValue("@isSelected", isSelected);
+                cmd.Parameters.AddWithValue("@rank", rank++);
+
+                await cmd.ExecuteNonQueryAsync();
+            }
+        }
+        // =============================================
+        // INSERT TOP STOCKS
+        // =============================================
+        public async Task InsertTopStocksAsync(
+            string runId,
+            DateTime businessDate,
+            List<Stock> stocks)
+        {
+            using var conn = new SqlConnection(_connectionString);
+            await conn.OpenAsync();
+
+            var createSql = @"
+        IF NOT EXISTS (
+            SELECT * FROM sysobjects
+            WHERE name='Table_4_Top_Stocks' AND xtype='U'
+        )
+        CREATE TABLE Table_4_Top_Stocks (
+            id             INT IDENTITY(1,1) PRIMARY KEY,
+            run_id         NVARCHAR(50),
+            business_date  DATE,
+            symbol         NVARCHAR(20),
+            stock_name     NVARCHAR(100),
+            sector_name    NVARCHAR(100),
+            pct_1d         DECIMAL(10,4),
+            pe_ratio       DECIMAL(10,4),
+            avg_turnover   DECIMAL(20,2),
+            score          DECIMAL(10,6),
+            rank           INT,
+            created_at     DATETIME DEFAULT GETDATE()
+        )";
+
+            using (var cmd = new SqlCommand(createSql, conn))
+                await cmd.ExecuteNonQueryAsync();
+
+            foreach (var stock in stocks)
+            {
+                var sql = @"
+            INSERT INTO Table_4_Top_Stocks
+                (run_id, business_date, symbol, stock_name,
+                 sector_name, pct_1d, pe_ratio, avg_turnover, score, rank)
+            VALUES
+                (@runId, @businessDate, @symbol, @stockName,
+                 @sectorName, @pct1d, @peRatio, @avgTurnover, @score, @rank)";
+
+                using var cmd = new SqlCommand(sql, conn);
+                cmd.Parameters.AddWithValue("@runId", runId);
+                cmd.Parameters.AddWithValue("@businessDate", businessDate);
+                cmd.Parameters.AddWithValue("@symbol", stock.Symbol);
+                cmd.Parameters.AddWithValue("@stockName", stock.StockName);
+                cmd.Parameters.AddWithValue("@sectorName", stock.SectorName);
+                cmd.Parameters.AddWithValue("@pct1d", stock.Pct1d);
+                cmd.Parameters.AddWithValue("@peRatio", stock.PERatio);
+                cmd.Parameters.AddWithValue("@avgTurnover", stock.AvgTurnover30d);
+                cmd.Parameters.AddWithValue("@score", stock.Score);
+                cmd.Parameters.AddWithValue("@rank", stock.Rank);
+                await cmd.ExecuteNonQueryAsync();
+            }
         }
     }
 }

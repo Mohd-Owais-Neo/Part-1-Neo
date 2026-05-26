@@ -25,5 +25,10 @@ namespace NEO.Core.Models
         public string ReasonCode { get; set; } = string.Empty;
         public decimal StopLoss { get; set; }
         public DateTime CreatedAt { get; set; }
+        public decimal Score { get; set; }
+        public int Rank { get; set; }
+        public decimal PERatio { get; set; }
+        public decimal Volume { get; set; }
+
     }
 }
