@@ -16,5 +16,8 @@ namespace NEO.Core.Models
         public decimal Pct1d { get; set; }
         public string Signal { get; set; } = ""; // BUY / WATCH / SKIP
         public string Reason { get; set; } = "";
+        public DateTime BusinessDate { get; set; }
+        public string RunId { get; set; } = "";
+
     }
 }

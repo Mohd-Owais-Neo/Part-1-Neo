@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("NEO.Core")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+ff489283d2ba9986a2516c79cbd885e5f2c4ddd6")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+13c2e7ab20d6f91fb319a17eb9a7c6f4d9981a31")]
 [assembly: System.Reflection.AssemblyProductAttribute("NEO.Core")]
 [assembly: System.Reflection.AssemblyTitleAttribute("NEO.Core")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

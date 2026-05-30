@@ -16,6 +16,7 @@ namespace NEO.Core.Models
         public string SectorName { get; set; } = string.Empty;
         public decimal PreviousClose { get; set; }
         public decimal Pct1d { get; set; }
+        public decimal Price { get; set; }
         public decimal Pct5d { get; set; }
         public decimal Pct20d { get; set; }
         public decimal MarketCap { get; set; }

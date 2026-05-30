@@ -353,10 +353,47 @@ namespace NEO.Core.Services
                 return new List<Stock>();
             }
 
-            var topStocks = _stockSelector.SelectTopStocksFromMockData(
-                selectedSectors, topN: 10);
+            // Check if today's stocks already cached in DB
+            var cached = await _db.LoadTopStocksAsync(businessDate);
+            if (cached.Count > 0)
+            {
+                Console.WriteLine($"   ✅ Cache hit! Stock data exists for today");
+                Console.WriteLine($"   → Loaded {cached.Count} stocks from DB");
+                return cached;
+            }
 
-            await _db.EnsureTableExistsAsync("Table_4_Top_Stocks");
+            // Try real API first
+            Console.WriteLine("   → No cache found - calling API for real stock data...");
+            List<Stock> topStocks;
+
+            try
+            {
+                topStocks = await _stockSelector.SelectTopStocksAsync(
+                    selectedSectors, topN: 10);
+
+                // If API returned nothing → fall back to mock
+                if (topStocks.Count == 0)
+                {
+                    Console.WriteLine("   ⚠️ API returned no data → switching to Mock Mode");
+                    topStocks = _stockSelector.SelectTopStocksFromMockData(
+                        selectedSectors, topN: 10);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"   ⚠️ API error: {ex.Message} → switching to Mock Mode");
+                topStocks = _stockSelector.SelectTopStocksFromMockData(
+                    selectedSectors, topN: 10);
+            }
+
+            // Print top list
+            Console.WriteLine($"\n   📊 Top {topStocks.Count} stocks selected:");
+            for (int i = 0; i < topStocks.Count; i++)
+                Console.WriteLine($"    {i + 1}. {topStocks[i].Symbol,-8} " +
+                                  $"1D: {topStocks[i].Pct1d,6:F2}%  " +
+                                  $"Score: {topStocks[i].Score:F3}");
+
+            // Save to DB
             await _db.InsertTopStocksAsync(runId, businessDate, topStocks);
 
             Console.WriteLine($"\n   ✅ {topStocks.Count} stocks saved to Table_4_Top_Stocks");
@@ -381,7 +418,7 @@ namespace NEO.Core.Services
         DateTime businessDate,
         List<Stock> stocks)
         {
-            Console.WriteLine("\n🔵 STAGE 8 — Risk Management...");
+            //Console.WriteLine("\n🔵 STAGE 8 — Risk Management...");
 
             if (stocks.Count == 0)
             {

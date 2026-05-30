@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+using static System.Net.WebRequestMethods;
 
 namespace NEO.Core.Services
 {
@@ -32,27 +33,24 @@ namespace NEO.Core.Services
                 var url = $"{BaseUrl}?function=GLOBAL_QUOTE&symbol=MSFT&apikey={_apiKey}";
                 var response = await _httpClient.GetStringAsync(url);
 
-                // Always print raw response so we can see what's coming back
                 Console.WriteLine($"   → Response length: {response.Length} chars");
                 Console.WriteLine($"   → Raw: {response.Substring(0, Math.Min(300, response.Length))}");
 
                 var json = JsonDocument.Parse(response);
 
-                // Rate limit
-                if (json.RootElement.TryGetProperty("Note", out var note))
+                if (json.RootElement.TryGetProperty("Note", out _))
                 {
-                    Console.WriteLine($"   ⚠️ Rate limit — waiting 65 seconds...");
+                    Console.WriteLine("   ⚠️ Rate limit — waiting 65 seconds...");
                     await Task.Delay(65000);
                     return await TestApiConnectionAsync();
                 }
 
-                // Info message (daily limit hit)
                 if (json.RootElement.TryGetProperty("Information", out var info))
                 {
                     Console.WriteLine($"   ⚠️ API Info: {info.GetString()}");
-                    Console.WriteLine($"   → This means daily API limit reached (25 calls/day on free tier)");
-                    Console.WriteLine($"   → Bypassing API test — assuming connected...");
-                    return true; // bypass for now
+                    Console.WriteLine("   → This means daily API limit reached (25 calls/day on free tier)");
+                    Console.WriteLine("   → Bypassing API test - assuming connected...");
+                    return true;
                 }
 
                 if (json.RootElement.TryGetProperty("Error Message", out var error))
@@ -64,17 +62,11 @@ namespace NEO.Core.Services
                 if (json.RootElement.TryGetProperty("Global Quote", out var quote))
                 {
                     var symbol = quote.TryGetProperty("01. symbol", out var s)
-                        ? s.GetString() : "?";
+                                 ? s.GetString() : "?";
                     Console.WriteLine($"   ✅ API connection successful! Got quote for: {symbol}");
                     return true;
                 }
 
-                // Print all keys for debugging
-                Console.WriteLine("   → Keys in response:");
-                foreach (var prop in json.RootElement.EnumerateObject())
-                    Console.WriteLine($"      • {prop.Name}");
-
-                // If Global Quote is missing but no error → still return true
                 Console.WriteLine("   ⚠️ Unexpected format but no error — continuing...");
                 return true;
             }
@@ -86,8 +78,56 @@ namespace NEO.Core.Services
         }
 
         // =============================================
+        // FETCH SINGLE STOCK QUOTE — Real Data
+        // =============================================
+        public async Task<StockQuote?> FetchStockQuoteAsync(string symbol)
+        {
+            try
+            {
+                var url = $"{BaseUrl}?function=GLOBAL_QUOTE&symbol={symbol}&apikey={_apiKey}";
+                var response = await _httpClient.GetStringAsync(url);
+                var json = JsonDocument.Parse(response);
+
+                if (json.RootElement.TryGetProperty("Information", out _) ||
+                    json.RootElement.TryGetProperty("Note", out _))
+                {
+                    Console.WriteLine($"   ⚠️ [{symbol}] API rate limit hit");
+                    return null;
+                }
+
+                if (!json.RootElement.TryGetProperty("Global Quote", out var quote))
+                    return null;
+
+                var priceStr = GetJsonString(quote, "05. price");
+                var prevStr = GetJsonString(quote, "08. previous close");
+
+                if (string.IsNullOrEmpty(priceStr)) return null;
+
+                var price = decimal.Parse(priceStr,
+                                    System.Globalization.CultureInfo.InvariantCulture);
+                var prevClose = decimal.Parse(prevStr,
+                                    System.Globalization.CultureInfo.InvariantCulture);
+                var pct1d = prevClose > 0
+                                ? Math.Round((price - prevClose) / prevClose * 100, 4)
+                                : 0m;
+
+                return new StockQuote
+                {
+                    Symbol = symbol,
+                    Price = price,
+                    PrevClose = prevClose,
+                    Pct1d = pct1d
+                };
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"   ⚠️ [{symbol}] Error: {ex.Message}");
+                return null;
+            }
+        }
+
+        // =============================================
         // FETCH SECTOR PERFORMANCE — Any Market
-        // market = "US" | "INDIA" | "CHINA"
         // =============================================
         public async Task<List<Sector>> FetchSectorPerformanceAsync(string market)
         {
@@ -106,7 +146,6 @@ namespace NEO.Core.Services
                     var response = await _httpClient.GetStringAsync(url);
                     var json = JsonDocument.Parse(response);
 
-                    // Handle rate limit
                     if (json.RootElement.TryGetProperty("Note", out _))
                     {
                         Console.WriteLine("   ⚠️ Rate limit hit — waiting 60 seconds...");
@@ -122,19 +161,17 @@ namespace NEO.Core.Services
                     }
 
                     var pctStr = quote.TryGetProperty("10. change percent", out var p)
-                        ? p.GetString() ?? "0%" : "0%";
+                                 ? p.GetString() ?? "0%" : "0%";
                     var pct = ParsePercent(pctStr);
 
                     result.Add(new Sector
                     {
                         SectorName = kvp.Key,
                         PctChange = pct,
-                        Pct1d = pct,
+                        Pct1d = pct
                     });
 
                     Console.WriteLine($"   ✅ [{market}] {kvp.Key}: {pct}%");
-
-                    // Free tier: 5 calls/min → wait 13 seconds
                     await Task.Delay(13000);
                 }
                 catch (Exception ex)
@@ -143,7 +180,6 @@ namespace NEO.Core.Services
                 }
             }
 
-            // Sort by performance descending and rank
             result = result.OrderByDescending(s => s.PctChange).ToList();
             for (int i = 0; i < result.Count; i++)
                 result[i].Rank = i + 1;
@@ -161,8 +197,8 @@ namespace NEO.Core.Services
             var result = new List<Stock>();
             var symbolMap = GetSectorStockSymbols(sectorName, market);
             var symbols = symbolMap.ContainsKey(sectorName)
-                ? symbolMap[sectorName]
-                : new List<string>();
+                            ? symbolMap[sectorName]
+                            : new List<string>();
 
             foreach (var symbol in symbols.Take(topN))
             {
@@ -181,13 +217,16 @@ namespace NEO.Core.Services
                     if (quote.TryGetProperty("10. change percent", out var p))
                         pctChange = p.GetString() ?? "0%";
 
+                    var price = ParseDecimal(quote, "05. price");
+
                     result.Add(new Stock
                     {
                         Symbol = symbol,
                         StockName = symbol,
                         SectorName = sectorName,
                         PreviousClose = ParseDecimal(quote, "08. previous close"),
-                        Pct1d = ParsePercent(pctChange)
+                        Pct1d = ParsePercent(pctChange),
+                        Price = price
                     });
 
                     Console.WriteLine($"   ✅ {symbol} fetched");
@@ -204,58 +243,52 @@ namespace NEO.Core.Services
 
         // =============================================
         // MARKET REPRESENTATIVES
-        // 1 stock per sector per market
         // =============================================
         private Dictionary<string, string> GetMarketRepresentatives(string market)
         {
             return market.ToUpper() switch
             {
                 "US" => new Dictionary<string, string>
-        {
-            { "Technology",             "MSFT"  },
-            { "Health Care",            "JNJ"   },
-            { "Industrials",            "HON"   },
-            { "Energy",                 "XOM"   },
-            { "Materials",              "LIN"   },
-            { "Consumer Discretionary", "AMZN"  },
-            { "Consumer Staples",       "PG"    },
-            { "Utilities",              "NEE"   },
-            { "Real Estate",            "AMT"   },
-            { "Communication Services", "GOOGL" }
-        },
-
-                // Indian companies listed on US exchanges (ADR)
+                {
+                    { "Technology",             "MSFT"  },
+                    { "Health Care",            "JNJ"   },
+                    { "Industrials",            "HON"   },
+                    { "Energy",                 "XOM"   },
+                    { "Materials",              "LIN"   },
+                    { "Consumer Discretionary", "AMZN"  },
+                    { "Consumer Staples",       "PG"    },
+                    { "Utilities",              "NEE"   },
+                    { "Real Estate",            "AMT"   },
+                    { "Communication Services", "GOOGL" }
+                },
                 "INDIA" => new Dictionary<string, string>
-        {
-            { "Technology",  "INFY"  },   // Infosys
-            { "Pharma",      "RDY"   },   // Dr Reddy's
-            { "Auto",        "TTM"   },   // Tata Motors
-            { "Metals",      "VEDL"  },   // Vedanta
-            { "Consumer",    "HDB"   },   // HDFC Bank
-            { "Industrials", "WIT"   },   // Wipro
-            { "Energy",      "SLB"   },   // Use SLB as proxy
-            { "FMCG",        "UL"    }    // Unilever as proxy
-        },
-
-                // Chinese companies listed on US exchanges (ADR)
+                {
+                    { "Technology",  "INFY" },
+                    { "Pharma",      "RDY"  },
+                    { "Auto",        "TTM"  },
+                    { "Metals",      "VEDL" },
+                    { "Consumer",    "HDB"  },
+                    { "Industrials", "WIT"  },
+                    { "Energy",      "SLB"  },
+                    { "FMCG",        "UL"   }
+                },
                 "CHINA" => new Dictionary<string, string>
-        {
-            { "Technology",  "BIDU"  },   // Baidu
-            { "Consumer",    "JD"    },   // JD.com
-            { "Industrials", "YUMC"  },   // Yum China
-            { "Health Care", "BGNE"  },   // BeiGene
-            { "Auto",        "NIO"   },   // NIO
-            { "Telecom",     "CHL"   },   // China Mobile
-            { "Energy",      "CEO"   },   // CNOOC
-            { "Materials",   "ACH"   }    // Aluminum Corp
-        },
-
+                {
+                    { "Technology",  "BIDU" },
+                    { "Consumer",    "JD"   },
+                    { "Industrials", "YUMC" },
+                    { "Health Care", "BGNE" },
+                    { "Auto",        "NIO"  },
+                    { "Telecom",     "CHL"  },
+                    { "Energy",      "CEO"  },
+                    { "Materials",   "ACH"  }
+                },
                 _ => new Dictionary<string, string>()
             };
         }
 
         // =============================================
-        // SECTOR STOCK SYMBOLS — For Stock Filtering
+        // SECTOR STOCK SYMBOLS
         // =============================================
         private Dictionary<string, List<string>> GetSectorStockSymbols(
             string sectorName, string market)
@@ -265,20 +298,14 @@ namespace NEO.Core.Services
                 return new Dictionary<string, List<string>>(
                     StringComparer.OrdinalIgnoreCase)
                 {
-                    { "Technology", new List<string>
-                        { "INFY.BSE","TCS.BSE","WIPRO.BSE","HCLTECH.BSE","TECHM.BSE" }},
-                    { "Pharma",     new List<string>
-                        { "SUNPHARMA.BSE","DRREDDY.BSE","CIPLA.BSE","DIVISLAB.BSE","APOLLOHOSP.BSE" }},
-                    { "Auto",       new List<string>
-                        { "TATAMOTORS.BSE","MARUTI.BSE","M&M.BSE","BAJAJ-AUTO.BSE","HEROMOTOCO.BSE" }},
-                    { "Energy",     new List<string>
-                        { "RELIANCE.BSE","ONGC.BSE","BPCL.BSE","IOC.BSE","POWERGRID.BSE" }},
-                    { "Metals",     new List<string>
-                        { "TATASTEEL.BSE","HINDALCO.BSE","JSWSTEEL.BSE","COALINDIA.BSE","VEDL.BSE" }}
+                    { "Technology", new List<string> { "INFY","WIT","HDB","RDY","TTM"         }},
+                    { "Pharma",     new List<string> { "RDY","CIPLA.NS","SUNPHARMA.NS"         }},
+                    { "Auto",       new List<string> { "TTM","HMC","TM"                        }},
+                    { "Energy",     new List<string> { "SLB","XOM","CVX"                       }},
+                    { "Metals",     new List<string> { "VEDL","FCX","NEM"                      }}
                 };
             }
 
-            // Default US
             return new Dictionary<string, List<string>>(
                 StringComparer.OrdinalIgnoreCase)
             {
@@ -295,18 +322,24 @@ namespace NEO.Core.Services
             };
         }
 
-        private List<string> GetSectorSymbols(string sectorName)
-            => GetSectorStockSymbols(sectorName, "US")
-               .GetValueOrDefault(sectorName, new List<string>());
-
         // =============================================
         // HELPERS
         // =============================================
+        private string GetJsonString(JsonElement element, string key)
+        {
+            if (element.TryGetProperty(key, out var val))
+                return val.GetString() ?? "";
+            return "";
+        }
+
         private decimal ParsePercent(string value)
         {
             if (string.IsNullOrEmpty(value)) return 0;
             value = value.Replace("%", "").Trim();
-            return decimal.TryParse(value, out var result) ? result : 0;
+            return decimal.TryParse(value,
+                System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var result) ? result : 0;
         }
 
         private decimal ParseDecimal(JsonElement element, string propertyName)
@@ -314,7 +347,10 @@ namespace NEO.Core.Services
             if (element.TryGetProperty(propertyName, out var prop))
             {
                 var str = prop.GetString() ?? "0";
-                return decimal.TryParse(str, out var result) ? result : 0;
+                return decimal.TryParse(str,
+                    System.Globalization.NumberStyles.Any,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out var result) ? result : 0;
             }
             return 0;
         }

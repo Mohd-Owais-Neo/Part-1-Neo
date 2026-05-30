@@ -10,168 +10,307 @@ namespace NEO.Core.Services
     public class TopStockSelectorService
     {
         private readonly ApiDataService _api;
-        private readonly StockFilterService _filter;
+
+        // =============================================
+        // STOCK UNIVERSE — Stocks per sector
+        // =============================================
+        private static readonly Dictionary<string, List<string>> SectorStocks = new()
+        {
+            ["Industrials"] = new()
+            {
+                "HON", "UPS", "CAT", "GE", "BA",
+                "LMT", "RTX", "DE", "FDX", "EMR"
+            },
+            ["Technology"] = new()
+            {
+                "MSFT", "AAPL", "NVDA", "AVGO", "CRM",
+                "ORCL", "ACN", "AMD", "INTC", "IBM"
+            },
+            ["Health Care"] = new()
+            {
+                "JNJ", "UNH", "LLY", "MRK", "ABT",
+                "TMO", "DHR", "BMY", "AMGN", "MDT"
+            },
+            ["Energy"] = new()
+            {
+                "XOM", "CVX", "COP", "SLB", "EOG",
+                "PXD", "MPC", "VLO", "PSX", "OXY"
+            },
+            ["Communication Services"] = new()
+            {
+                "GOOGL", "META", "NFLX", "DIS", "CMCSA",
+                "VZ", "T", "TMUS", "ATVI", "EA"
+            },
+            ["Consumer Discretionary"] = new()
+            {
+                "AMZN", "TSLA", "MCD", "NKE", "SBUX",
+                "HD", "LOW", "TJX", "BKNG", "GM"
+            },
+            ["Consumer Staples"] = new()
+            {
+                "PG", "KO", "PEP", "COST", "WMT",
+                "PM", "MO", "CL", "GIS", "KHC"
+            },
+            ["Materials"] = new()
+            {
+                "LIN", "APD", "SHW", "FCX", "NEM",
+                "NUE", "VMC", "MLM", "CE", "ALB"
+            },
+            ["Real Estate"] = new()
+            {
+                "AMT", "PLD", "CCI", "EQIX", "PSA",
+                "DLR", "O", "WELL", "AVB", "EQR"
+            },
+            ["Utilities"] = new()
+            {
+                "NEE", "DUK", "SO", "D", "AEP",
+                "EXC", "SRE", "XEL", "ED", "ETR"
+            },
+            ["Pharma"] = new()
+            {
+                "JNJ", "MRK", "PFE", "ABBV", "BMY",
+                "LLY", "AMGN", "GILD", "BIIB", "REGN"
+            },
+            ["Auto"] = new()
+            {
+                "TSLA", "GM", "F", "TM", "HMC",
+                "RIVN", "LCID", "NIO", "XPEV", "LI"
+            },
+            ["Consumer"] = new()
+            {
+                "AMZN", "WMT", "COST", "TGT", "HD",
+                "LOW", "BABA", "JD", "PDD", "MELI"
+            },
+            ["Metals"] = new()
+            {
+                "FCX", "NEM", "GOLD", "AEM", "WPM",
+                "AA", "NUE", "STLD", "CLF", "MP"
+            },
+            ["Telecom"] = new()
+            {
+                "VZ", "T", "TMUS", "LUMN", "USM",
+                "SHEN", "TDS", "GSAT", "IRDM", "VSAT"
+            },
+            ["FMCG"] = new()
+            {
+                "PG", "KO", "PEP", "UL", "NSRGY",
+                "CL", "KMB", "CHD", "SPB", "HRL"
+            }
+        };
 
         public TopStockSelectorService(ApiDataService api)
         {
             _api = api;
-            _filter = new StockFilterService();
         }
 
         // =============================================
-        // SELECT TOP STOCKS FOR SELECTED SECTORS
+        // SELECT TOP STOCKS — REAL API DATA
         // =============================================
         public async Task<List<Stock>> SelectTopStocksAsync(
-            List<string> selectedSectors,
-            string market = "US",
+            List<string> sectors,
             int topN = 10)
         {
-            var allTopStocks = new List<Stock>();
+            Console.WriteLine("\n🔵 STAGE 5 — Selecting Top Stocks (Real Data)...");
 
-            Console.WriteLine($"\n🔵 STAGE 5 — Selecting Top Stocks...");
-            Console.WriteLine($"   → Markets : {market}");
-            Console.WriteLine($"   → Sectors : {string.Join(", ", selectedSectors)}");
-            Console.WriteLine($"   → Top N   : {topN}");
+            var allStocks = new List<Stock>();
 
-            foreach (var sector in selectedSectors)
+            foreach (var sector in sectors)
             {
-                Console.WriteLine($"\n   📂 Processing sector: {sector}");
+                Console.WriteLine($"\n   📊 Processing sector: {sector}");
 
-                // Fetch stocks from API
-                var stocks = await _api.FetchTopStocksForSectorAsync(
-                    sector, market, topN: 10);
-
-                if (stocks.Count == 0)
+                if (!SectorStocks.ContainsKey(sector))
                 {
-                    Console.WriteLine($"   ⚠️ No stocks returned for {sector}");
+                    Console.WriteLine($"   ⚠️ No stocks defined for {sector}");
                     continue;
                 }
 
-                // Filter stocks
-                var filtered = _filter.FilterStocks(stocks, sector);
+                var symbols = SectorStocks[sector];
+                var passed = new List<Stock>();
+                var failed = 0;
 
-                // Score and rank
-                var ranked = _filter.ScoreAndRankStocks(filtered);
-
-                // Take top N
-                var top = ranked.Take(topN).ToList();
-
-                Console.WriteLine($"\n   🏆 Top {top.Count} stocks for {sector}:");
-                foreach (var s in top)
-                    Console.WriteLine($"   {s.Rank,2}. {s.Symbol,-8} " +
-                                      $"1D:{s.Pct1d,6:F2}%  " +
-                                      $"Score:{s.Score,6:F3}");
-
-                allTopStocks.AddRange(top);
-            }
-
-            Console.WriteLine($"\n   ✅ Total top stocks selected: {allTopStocks.Count}");
-            return allTopStocks;
-        }
-
-        // =============================================
-        // SELECT FROM DB DATA — No API calls needed
-        // =============================================
-        public List<Stock> SelectTopStocksFromMockData(
-            List<string> selectedSectors,
-            int topN = 10)
-        {
-            Console.WriteLine($"\n🔵 STAGE 5 — Selecting Top Stocks (Mock Mode)...");
-
-            var allTopStocks = new List<Stock>();
-
-            // Mock stock data per sector
-            var mockStocks = GetMockStocks();
-
-            foreach (var sector in selectedSectors)
-            {
-                Console.WriteLine($"\n   📂 Processing sector: {sector}");
-
-                var stocks = mockStocks
-                    .Where(s => s.SectorName.Equals(
-                        sector, StringComparison.OrdinalIgnoreCase))
-                    .ToList();
-
-                if (stocks.Count == 0)
+                foreach (var symbol in symbols)
                 {
-                    // Use generic mock stocks if sector not in mock data
-                    stocks = GetGenericMockStocks(sector);
+                    // Wait between calls → respect rate limit
+                    await Task.Delay(12000); // 12 sec = 5 calls/min
+
+                    var quote = await _api.FetchStockQuoteAsync(symbol);
+
+                    if (quote == null)
+                    {
+                        Console.WriteLine($"   ⚠️ {symbol,-8} → No data, skipping");
+                        failed++;
+                        continue;
+                    }
+
+                    // Filter: momentum must be > -1%
+                    if (quote.Pct1d < -1.0m)
+                    {
+                        Console.WriteLine($"   ❌ {symbol,-8} " +
+                                          $"1D: {quote.Pct1d,6:F2}% → FAILED (momentum too low)");
+                        failed++;
+                        continue;
+                    }
+
+                    Console.WriteLine($"   ✅ {symbol,-8} " +
+                                      $"1D: {quote.Pct1d,6:F2}% → PASSED");
+
+                    passed.Add(new Stock
+                    {
+                        Symbol = symbol,
+                        StockName = symbol,
+                        SectorName = sector,
+                        Pct1d = quote.Pct1d,
+                        Price = quote.Price
+                    });
                 }
 
-                // Filter
-                var filtered = _filter.FilterStocks(stocks, sector);
+                Console.WriteLine($"\n   → {passed.Count} passed / {failed} failed");
 
                 // Score and rank
-                var ranked = _filter.ScoreAndRankStocks(filtered);
-
-                // Take top N
-                var top = ranked.Take(topN).ToList();
-
-                Console.WriteLine($"\n   🏆 Top {top.Count} stocks for {sector}:");
-                foreach (var s in top)
-                    Console.WriteLine($"   {s.Rank,2}. {s.Symbol,-8} " +
-                                      $"1D:{s.Pct1d,6:F2}%  " +
-                                      $"Score:{s.Score,6:F3}");
-
-                allTopStocks.AddRange(top);
+                var scored = ScoreAndRank(passed, sector);
+                allStocks.AddRange(scored.Take(topN));
             }
 
-            Console.WriteLine($"\n   ✅ Total top stocks selected: {allTopStocks.Count}");
-            return allTopStocks;
+            Console.WriteLine($"\n   ✅ Total top stocks selected: {allStocks.Count}");
+            return allStocks;
         }
 
         // =============================================
-        // MOCK DATA — Used in DB Mode / Weekend Testing
+        // MOCK MODE — Used when API limit reached
         // =============================================
-        private List<Stock> GetMockStocks()
+        public List<Stock> SelectTopStocksFromMockData(
+            List<string> sectors,
+            int topN = 10)
         {
-            return new List<Stock>
+            Console.WriteLine("\n🔵 STAGE 5 — Selecting Top Stocks (Mock Mode)...");
+
+            var allStocks = new List<Stock>();
+
+            foreach (var sector in sectors)
             {
-                // Industrials
-                new Stock { Symbol="HON",  StockName="Honeywell",         SectorName="Industrials", Pct1d=2.10m,  PERatio=24.5m, AvgTurnover30d=800_000_000m  },
-                new Stock { Symbol="UPS",  StockName="UPS",               SectorName="Industrials", Pct1d=1.85m,  PERatio=19.2m, AvgTurnover30d=600_000_000m  },
-                new Stock { Symbol="CAT",  StockName="Caterpillar",       SectorName="Industrials", Pct1d=1.60m,  PERatio=16.8m, AvgTurnover30d=750_000_000m  },
-                new Stock { Symbol="GE",   StockName="GE Aerospace",      SectorName="Industrials", Pct1d=1.40m,  PERatio=33.1m, AvgTurnover30d=900_000_000m  },
-                new Stock { Symbol="BA",   StockName="Boeing",            SectorName="Industrials", Pct1d=0.90m,  PERatio=0m,    AvgTurnover30d=1_200_000_000m},
-                new Stock { Symbol="LMT",  StockName="Lockheed Martin",   SectorName="Industrials", Pct1d=0.75m,  PERatio=17.4m, AvgTurnover30d=400_000_000m  },
-                new Stock { Symbol="RTX",  StockName="RTX Corp",          SectorName="Industrials", Pct1d=0.50m,  PERatio=21.3m, AvgTurnover30d=500_000_000m  },
-                new Stock { Symbol="DE",   StockName="John Deere",        SectorName="Industrials", Pct1d=-0.20m, PERatio=11.9m, AvgTurnover30d=350_000_000m  },
-                new Stock { Symbol="FDX",  StockName="FedEx",             SectorName="Industrials", Pct1d=-0.50m, PERatio=14.2m, AvgTurnover30d=300_000_000m  },
-                new Stock { Symbol="EMR",  StockName="Emerson Electric",  SectorName="Industrials", Pct1d=-2.50m, PERatio=20.1m, AvgTurnover30d=250_000_000m  },
+                Console.WriteLine($"\n   📊 Processing sector: {sector}");
 
-                // Health Care
-                new Stock { Symbol="JNJ",  StockName="Johnson & Johnson", SectorName="Health Care", Pct1d=1.80m,  PERatio=15.2m, AvgTurnover30d=1_100_000_000m},
-                new Stock { Symbol="UNH",  StockName="UnitedHealth",      SectorName="Health Care", Pct1d=1.50m,  PERatio=22.4m, AvgTurnover30d=900_000_000m  },
-                new Stock { Symbol="PFE",  StockName="Pfizer",            SectorName="Health Care", Pct1d=1.20m,  PERatio=12.1m, AvgTurnover30d=800_000_000m  },
-                new Stock { Symbol="ABBV", StockName="AbbVie",            SectorName="Health Care", Pct1d=0.90m,  PERatio=18.7m, AvgTurnover30d=600_000_000m  },
-                new Stock { Symbol="MRK",  StockName="Merck",             SectorName="Health Care", Pct1d=0.60m,  PERatio=14.5m, AvgTurnover30d=700_000_000m  },
+                var mockStocks = GetMockStocks(sector);
+                Console.WriteLine($"   → Filtering {mockStocks.Count} stocks for sector: {sector}");
 
-                // Consumer Staples
-                new Stock { Symbol="PG",   StockName="Procter & Gamble",  SectorName="Consumer Staples", Pct1d=1.10m, PERatio=25.3m, AvgTurnover30d=600_000_000m},
-                new Stock { Symbol="KO",   StockName="Coca-Cola",         SectorName="Consumer Staples", Pct1d=0.90m, PERatio=23.1m, AvgTurnover30d=500_000_000m},
-                new Stock { Symbol="WMT",  StockName="Walmart",           SectorName="Consumer Staples", Pct1d=0.75m, PERatio=29.4m, AvgTurnover30d=800_000_000m},
-                new Stock { Symbol="COST", StockName="Costco",            SectorName="Consumer Staples", Pct1d=0.60m, PERatio=47.2m, AvgTurnover30d=700_000_000m},
-                new Stock { Symbol="PEP",  StockName="PepsiCo",           SectorName="Consumer Staples", Pct1d=0.40m, PERatio=24.8m, AvgTurnover30d=450_000_000m},
+                var passed = mockStocks
+                    .Where(s => {
+                        if (s.Pct1d < -1.0m)
+                        {
+                            Console.WriteLine($"   ❌ {s.Symbol,-8} → FAILED (momentum too low ({s.Pct1d:F2}%))");
+                            return false;
+                        }
+                        Console.WriteLine($"   ✅ {s.Symbol,-8} " +
+                                          $"1D: {s.Pct1d,6:F2}% PE: {s.PERatio,5:F1} → PASSED");
+                        return true;
+                    }).ToList();
 
-                // Materials
-                new Stock { Symbol="LIN",  StockName="Linde",             SectorName="Materials", Pct1d=1.20m, PERatio=29.1m, AvgTurnover30d=500_000_000m},
-                new Stock { Symbol="APD",  StockName="Air Products",      SectorName="Materials", Pct1d=0.95m, PERatio=22.4m, AvgTurnover30d=300_000_000m},
-                new Stock { Symbol="NEM",  StockName="Newmont",           SectorName="Materials", Pct1d=0.70m, PERatio=18.6m, AvgTurnover30d=400_000_000m},
-                new Stock { Symbol="FCX",  StockName="Freeport-McMoRan",  SectorName="Materials", Pct1d=0.50m, PERatio=16.2m, AvgTurnover30d=600_000_000m},
-                new Stock { Symbol="ECL",  StockName="Ecolab",            SectorName="Materials", Pct1d=0.30m, PERatio=35.7m, AvgTurnover30d=200_000_000m},
-            };
+                Console.WriteLine($"\n   → {passed.Count} passed / {mockStocks.Count - passed.Count} failed");
+
+                var scored = ScoreAndRank(passed, sector);
+
+                Console.WriteLine("\n   📊 Stock Rankings:");
+                foreach (var s in scored.Take(topN))
+                    Console.WriteLine($"   Rank {s.Rank}: {s.Symbol,-8} " +
+                                      $"1D: {s.Pct1d,6:F2}%  Score: {s.Score:F3}");
+
+                allStocks.AddRange(scored.Take(topN));
+            }
+
+            Console.WriteLine($"\n   ✅ Total top stocks selected: {allStocks.Count}");
+            return allStocks;
         }
 
-        private List<Stock> GetGenericMockStocks(string sectorName)
+        // =============================================
+        // SCORE + RANK STOCKS
+        // =============================================
+        private List<Stock> ScoreAndRank(List<Stock> stocks, string sector)
         {
-            return new List<Stock>
+            if (stocks.Count == 0) return stocks;
+
+            Console.WriteLine("\n   → Scoring and ranking stocks...");
+
+            foreach (var s in stocks)
             {
-                new Stock { Symbol="STK1", StockName="Stock 1", SectorName=sectorName, Pct1d=1.50m, PERatio=20m, AvgTurnover30d=500_000_000m },
-                new Stock { Symbol="STK2", StockName="Stock 2", SectorName=sectorName, Pct1d=1.20m, PERatio=18m, AvgTurnover30d=400_000_000m },
-                new Stock { Symbol="STK3", StockName="Stock 3", SectorName=sectorName, Pct1d=0.90m, PERatio=22m, AvgTurnover30d=300_000_000m },
-                new Stock { Symbol="STK4", StockName="Stock 4", SectorName=sectorName, Pct1d=0.60m, PERatio=25m, AvgTurnover30d=200_000_000m },
-                new Stock { Symbol="STK5", StockName="Stock 5", SectorName=sectorName, Pct1d=0.30m, PERatio=30m, AvgTurnover30d=100_000_000m },
-            };
+                // Score formula:
+                // 40% → 1D momentum
+                // 30% → PE ratio (lower = better, capped at 30)
+                // 30% → Liquidity proxy (price-based)
+
+                var momentumScore = (double)(s.Pct1d + 3m) / 6.0 * 4.0;
+                var peScore = s.PERatio > 0
+                                    ? Math.Max(0, (30.0 - (double)s.PERatio) / 30.0 * 3.0)
+                                    : 1.5;
+                var priceScore = s.Price > 0
+                                    ? Math.Min((double)s.Price / 500.0 * 3.0, 3.0)
+                                    : 1.0;
+
+                s.Score = (decimal)Math.Round(
+                    momentumScore * 0.4 + peScore * 0.3 + priceScore * 0.3, 3);
+            }
+
+            var ranked = stocks
+                .OrderByDescending(s => s.Score)
+                .ToList();
+
+            for (int i = 0; i < ranked.Count; i++)
+                ranked[i].Rank = i + 1;
+
+            Console.WriteLine("\n   📊 Stock Rankings:");
+            foreach (var s in ranked)
+                Console.WriteLine($"   Rank {s.Rank}: {s.Symbol,-8} " +
+                                  $"1D: {s.Pct1d,6:F2}%  Score: {s.Score:F3}");
+
+            return ranked;
         }
+
+        // =============================================
+        // MOCK DATA — Fallback when API limit reached
+        // =============================================
+        private List<Stock> GetMockStocks(string sector) => sector switch
+        {
+            "Industrials" => new List<Stock>
+    {
+        new() { Symbol="HON", StockName="Honeywell",   SectorName=sector, Pct1d= 2.10m, PERatio=24.5m, Price=220m },
+        new() { Symbol="UPS", StockName="UPS",         SectorName=sector, Pct1d= 1.85m, PERatio=19.2m, Price=145m },
+        new() { Symbol="CAT", StockName="Caterpillar", SectorName=sector, Pct1d= 1.60m, PERatio=16.8m, Price=340m },
+        new() { Symbol="GE",  StockName="GE",          SectorName=sector, Pct1d= 1.40m, PERatio=33.1m, Price=175m },
+        new() { Symbol="BA",  StockName="Boeing",      SectorName=sector, Pct1d= 0.90m, PERatio= 0.0m, Price=210m },
+        new() { Symbol="LMT", StockName="Lockheed",    SectorName=sector, Pct1d= 0.75m, PERatio=17.4m, Price=480m },
+        new() { Symbol="RTX", StockName="Raytheon",    SectorName=sector, Pct1d= 0.50m, PERatio=21.3m, Price=112m },
+        new() { Symbol="DE",  StockName="Deere",       SectorName=sector, Pct1d=-0.20m, PERatio=11.9m, Price=415m },
+        new() { Symbol="FDX", StockName="FedEx",       SectorName=sector, Pct1d=-0.50m, PERatio=14.2m, Price=265m },
+        new() { Symbol="EMR", StockName="Emerson",     SectorName=sector, Pct1d=-2.50m, PERatio=22.1m, Price=115m },
+    },
+            "Technology" => new List<Stock>
+    {
+        new() { Symbol="MSFT", StockName="Microsoft",  SectorName=sector, Pct1d= 5.45m, PERatio=35.2m, Price=450m },
+        new() { Symbol="AAPL", StockName="Apple",      SectorName=sector, Pct1d= 3.20m, PERatio=29.8m, Price=210m },
+        new() { Symbol="NVDA", StockName="Nvidia",     SectorName=sector, Pct1d= 4.80m, PERatio=42.1m, Price=135m },
+        new() { Symbol="AVGO", StockName="Broadcom",   SectorName=sector, Pct1d= 2.10m, PERatio=26.4m, Price=220m },
+        new() { Symbol="CRM",  StockName="Salesforce", SectorName=sector, Pct1d= 1.75m, PERatio=31.5m, Price=285m },
+        new() { Symbol="ORCL", StockName="Oracle",     SectorName=sector, Pct1d= 1.50m, PERatio=22.8m, Price=175m },
+        new() { Symbol="ACN",  StockName="Accenture",  SectorName=sector, Pct1d= 1.20m, PERatio=28.3m, Price=315m },
+        new() { Symbol="AMD",  StockName="AMD",        SectorName=sector, Pct1d= 0.90m, PERatio=44.2m, Price=165m },
+        new() { Symbol="INTC", StockName="Intel",      SectorName=sector, Pct1d=-0.30m, PERatio=18.5m, Price= 22m },
+        new() { Symbol="IBM",  StockName="IBM",        SectorName=sector, Pct1d=-0.80m, PERatio=20.1m, Price=235m },
+    },
+            "Real Estate" => new List<Stock>
+    {
+        new() { Symbol="AMT",  StockName="American Tower", SectorName=sector, Pct1d= 1.50m, PERatio=42.3m, Price=185m },
+        new() { Symbol="PLD",  StockName="Prologis",       SectorName=sector, Pct1d= 1.20m, PERatio=35.8m, Price=115m },
+        new() { Symbol="CCI",  StockName="Crown Castle",   SectorName=sector, Pct1d= 0.80m, PERatio=38.5m, Price= 95m },
+        new() { Symbol="EQIX", StockName="Equinix",        SectorName=sector, Pct1d= 0.60m, PERatio=44.1m, Price=820m },
+        new() { Symbol="PSA",  StockName="Public Storage",  SectorName=sector, Pct1d= 0.40m, PERatio=29.6m, Price=295m },
+        new() { Symbol="DLR",  StockName="Digital Realty",  SectorName=sector, Pct1d= 0.20m, PERatio=31.2m, Price=145m },
+        new() { Symbol="O",    StockName="Realty Income",   SectorName=sector, Pct1d=-0.10m, PERatio=44.8m, Price= 55m },
+        new() { Symbol="WELL", StockName="Welltower",       SectorName=sector, Pct1d=-0.40m, PERatio=88.5m, Price=135m },
+        new() { Symbol="AVB",  StockName="AvalonBay",       SectorName=sector, Pct1d=-0.60m, PERatio=32.4m, Price=210m },
+        new() { Symbol="EQR",  StockName="Equity Residential",SectorName=sector,Pct1d=-0.90m, PERatio=28.7m, Price= 72m },
+    },
+            _ => new List<Stock>()
+        };
     }
 }
+
+
