@@ -1,9 +1,15 @@
-using NEO.Core.Services;
+﻿using NEO.Core.Services;
+using NEO.Web.Workers;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddRazorPages();
+
+// ── Register Background Scheduler ──
+builder.Services.AddHostedService<PipelineScheduler>();
+
 var app = builder.Build();
 
+// ── Run pipeline once on startup ──
 var connStr = builder.Configuration
                           .GetConnectionString("DefaultConnection")!;
 var apiKey = builder.Configuration["AppSettings:AlphaVantageApiKey"]!;

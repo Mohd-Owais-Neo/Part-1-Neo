@@ -44,14 +44,14 @@ namespace NEO.Core.Services
         {
             Console.WriteLine("\n🔵 STAGE 9 — Email Alert...");
             Console.WriteLine($"   → Sending to: {_toEmail}");
+            Console.WriteLine($"   → Sectors: {selectedSectors.Count} | Picks: {signals.Count}");
 
             try
             {
-                var subject = $"📈 ProjectNEO Signals — {businessDate:dd MMM yyyy}";
-                var body = BuildEmailBody(runId, businessDate,
-                                             selectedSectors, signals);
+                var subject = $"[NEO] Daily Picks — {businessDate:yyyy-MM-dd} — {runId}";
+                var body = BuildEmailBody(runId, businessDate, selectedSectors, signals);
 
-                using var client = new System.Net.Mail.SmtpClient(_smtpHost, _smtpPort)
+                using var client = new SmtpClient(_smtpHost, _smtpPort)
                 {
                     Credentials = new NetworkCredential(_fromEmail, _fromPassword),
                     EnableSsl = true
@@ -80,6 +80,7 @@ namespace NEO.Core.Services
 
         // =============================================
         // BUILD HTML EMAIL BODY
+        // 3 sector blocks — each with top 3 stocks
         // =============================================
         private string BuildEmailBody(
             string runId,
@@ -87,85 +88,200 @@ namespace NEO.Core.Services
             List<string> selectedSectors,
             List<TradeSignal> signals)
         {
-            var buys = signals.Where(s => s.Signal == "BUY").ToList();
-            var watches = signals.Where(s => s.Signal == "WATCH").ToList();
-            var skips = signals.Where(s => s.Signal == "SKIP").ToList();
+            // Group signals by sector — top 3 stocks per sector
+            var signalsBySector = signals
+                .GroupBy(s => s.SectorName)
+                .ToDictionary(g => g.Key, g => g
+                    .OrderByDescending(s => s.Pct1d)
+                    .ThenByDescending(s => s.Score)
+                    .Take(3)
+                    .ToList());
 
-            var html = $@"
+            // Build one table block per sector
+            var sectorBlocks = new System.Text.StringBuilder();
+            int sectorNum = 0;
+
+            foreach (var sector in selectedSectors.Take(3))
+            {
+                sectorNum++;
+
+                // Find stocks for this sector (fuzzy match)
+                var sectorStocks = signalsBySector
+                    .FirstOrDefault(kvp =>
+                        kvp.Key.Equals(sector, StringComparison.OrdinalIgnoreCase)
+                        || kvp.Key.Contains(sector, StringComparison.OrdinalIgnoreCase)
+                        || sector.Contains(kvp.Key, StringComparison.OrdinalIgnoreCase))
+                    .Value ?? new List<TradeSignal>();
+
+                // Sector colour based on overall performance
+                var avgPct = sectorStocks.Any() ? sectorStocks.Average(s => s.Pct1d) : 0;
+                var sectorColor = avgPct >= 0 ? "#27ae60" : "#e74c3c";
+                var arrow = avgPct >= 0 ? "▲" : "▼";
+
+                sectorBlocks.Append($@"
+  <!-- SECTOR {sectorNum}: {sector} -->
+  <div style='background:white; border-radius:10px; margin-bottom:24px;
+              box-shadow:0 2px 6px rgba(0,0,0,0.08); overflow:hidden;'>
+
+    <!-- Sector Header -->
+    <div style='background:{sectorColor}; padding:12px 20px; color:white;'>
+      <table width='100%' cellpadding='0' cellspacing='0'>
+        <tr>
+          <td>
+            <span style='font-size:18px; font-weight:bold;'>
+              #{sectorNum} — {sector}
+            </span>
+          </td>
+          <td align='right'>
+            <span style='font-size:15px;'>
+              {arrow} Avg 1D: {avgPct:+0.00;-0.00}%
+            </span>
+          </td>
+        </tr>
+      </table>
+    </div>
+
+    <!-- Stocks Table -->
+    {(sectorStocks.Any()
+        ? BuildSectorTable(sectorStocks, sectorColor)
+        : "<p style='padding:15px; color:#aaa; font-style:italic;'>No picks available for this sector today</p>")}
+
+  </div>");
+            }
+
+            // Plain text summary for email clients that block HTML
+            var plainSummary = string.Join("  |  ", signals.Select(s =>
+                $"{s.Symbol}({s.Signal}) SL:{s.StopLoss:F2}"));
+
+            return $@"
 <!DOCTYPE html>
 <html>
-<body style='font-family: Arial, sans-serif; max-width: 700px; margin: auto;'>
+<body style='font-family:Arial,sans-serif; max-width:900px; margin:auto;
+             background:#f0f2f5; padding:20px;'>
 
-  <h2 style='background:#1a1a2e; color:white; padding:15px; border-radius:8px;'>
-    📈 ProjectNEO — Daily Trade Signals
-  </h2>
+  <!-- HEADER -->
+  <div style='background:#1a1a2e; color:white; padding:22px 25px;
+              border-radius:10px; margin-bottom:20px;'>
+    <h2 style='margin:0; font-size:22px; letter-spacing:0.5px;'>
+      📈 ProjectNEO — Daily Trade Picks
+    </h2>
+    <p style='margin:8px 0 0 0; color:#aac; font-size:13px;'>
+      Run ID: <strong>{runId}</strong>
+      &nbsp;&nbsp;|&nbsp;&nbsp;
+      Date: <strong>{businessDate:dddd, dd MMMM yyyy}</strong>
+    </p>
+  </div>
 
-  <p style='color:#555;'>
-    <strong>Run ID:</strong> {runId}<br/>
-    <strong>Date:</strong> {businessDate:dddd, dd MMMM yyyy}
-  </p>
+  <!-- SUMMARY BAR -->
+  <div style='background:white; border-radius:10px; padding:16px 20px;
+              margin-bottom:20px; display:flex; gap:0;
+              box-shadow:0 2px 6px rgba(0,0,0,0.08);'>
+    <div style='flex:1; text-align:center; border-right:1px solid #eee;'>
+      <div style='font-size:26px; font-weight:bold; color:#1a1a2e;'>
+        {selectedSectors.Take(3).Count()}
+      </div>
+      <div style='color:#888; font-size:12px; margin-top:3px;'>Sectors</div>
+    </div>
+    <div style='flex:1; text-align:center; border-right:1px solid #eee;'>
+      <div style='font-size:26px; font-weight:bold; color:#27ae60;'>
+        {signals.Count(s => s.Signal == "BUY")}
+      </div>
+      <div style='color:#888; font-size:12px; margin-top:3px;'>🟢 BUY</div>
+    </div>
+    <div style='flex:1; text-align:center; border-right:1px solid #eee;'>
+      <div style='font-size:26px; font-weight:bold; color:#f39c12;'>
+        {signals.Count(s => s.Signal == "WATCH")}
+      </div>
+      <div style='color:#888; font-size:12px; margin-top:3px;'>🟡 WATCH</div>
+    </div>
+    <div style='flex:1; text-align:center;'>
+      <div style='font-size:26px; font-weight:bold; color:#3498db;'>
+        {signals.Count}
+      </div>
+      <div style='color:#888; font-size:12px; margin-top:3px;'>Total Picks</div>
+    </div>
+  </div>
 
-  <h3 style='color:#1a1a2e;'>🎯 Selected Sectors</h3>
-  <ul>
-    {string.Join("", selectedSectors.Select(s =>
-        $"<li style='font-size:16px;'><strong>{s}</strong></li>"))}
-  </ul>
+  <!-- 3 SECTOR BLOCKS -->
+  {sectorBlocks}
 
-  <h3 style='color:#27ae60;'>🟢 BUY Signals ({buys.Count})</h3>
-  {BuildSignalTable(buys, "#27ae60")}
+  <!-- PLAIN TEXT FALLBACK -->
+  <div style='background:#fff8e1; padding:12px 16px; border-radius:8px;
+              border-left:4px solid #f39c12; margin-bottom:20px;
+              font-size:12px; color:#666;'>
+    <strong>Plain Text:</strong> {plainSummary}
+  </div>
 
-  <h3 style='color:#f39c12;'>🟡 WATCH Signals ({watches.Count})</h3>
-  {BuildSignalTable(watches, "#f39c12")}
-
-  {(skips.Count > 0 ? $@"
-  <h3 style='color:#e74c3c;'>🔴 SKIP Signals ({skips.Count})</h3>
-  {BuildSignalTable(skips, "#e74c3c")}" : "")}
-
-  <hr/>
-  <p style='color:#aaa; font-size:12px;'>
-    Generated by ProjectNEO • {DateTime.Now:dd MMM yyyy HH:mm}
-  </p>
+  <!-- FOOTER -->
+  <div style='text-align:center; color:#aaa; font-size:12px; padding:10px;'>
+    ProjectNEO &nbsp;•&nbsp; {DateTime.Now:dd MMM yyyy HH:mm}
+    &nbsp;•&nbsp; Stop Loss = Previous Close × 95%
+  </div>
 
 </body>
 </html>";
-
-            return html;
         }
 
-        private string BuildSignalTable(List<TradeSignal> signals, string color)
+        // =============================================
+        // BUILD STOCK TABLE FOR ONE SECTOR
+        // Columns: #, Symbol, Name, Prev Close,
+        //          1D%, 5D%, Stop Loss, Signal
+        // =============================================
+        private string BuildSectorTable(
+            List<TradeSignal> stocks,
+            string accentColor)
         {
-            if (signals.Count == 0)
-                return "<p style='color:#aaa;'>None</p>";
-
-            var rows = string.Join("", signals.Select(s => $@"
-                <tr>
-                  <td style='padding:8px; font-weight:bold;'>{s.Symbol}</td>
-                  <td style='padding:8px;'>{s.StockName}</td>
-                  <td style='padding:8px;'>{s.SectorName}</td>
-                  <td style='padding:8px; color:{color};'>
-                    {s.Pct1d:+0.00;-0.00}%
-                  </td>
-                  <td style='padding:8px;'>{s.Score:F3}</td>
-                  <td style='padding:8px; color:#555; font-size:12px;'>
-                    {s.Reason}
-                  </td>
-                </tr>"));
+            var rows = string.Join("", stocks.Select((s, i) => $@"
+              <tr style='background:{(i % 2 == 0 ? "#fafafa" : "white")};'>
+                <td style='padding:10px 12px; font-weight:bold;
+                           color:#888; font-size:13px;'>{i + 1}</td>
+                <td style='padding:10px 12px; font-weight:bold;
+                           color:#1a1a2e; font-size:15px;'>{s.Symbol}</td>
+                <td style='padding:10px 12px; color:#444;'>{s.StockName}</td>
+                <td style='padding:10px 12px; text-align:right; color:#555;'>
+                  {(s.PreviousClose > 0 ? $"₹{s.PreviousClose:N2}" : "—")}
+                </td>
+                <td style='padding:10px 12px; text-align:right; font-weight:bold;
+                           color:{(s.Pct1d >= 0 ? "#27ae60" : "#e74c3c")};'>
+                  {s.Pct1d:+0.00;-0.00}%
+                </td>
+                <td style='padding:10px 12px; text-align:right;
+                           color:{(s.Pct5d >= 0 ? "#27ae60" : "#e74c3c")};'>
+                  {s.Pct5d:+0.00;-0.00}%
+                </td>
+                <td style='padding:10px 12px; text-align:right;
+                           font-weight:bold; color:#e74c3c;'>
+                  {(s.StopLoss > 0 ? $"${s.StopLoss:F2}" : "—")}
+                </td>
+                <td style='padding:10px 12px; text-align:center;'>
+                  <span style='background:{accentColor}; color:white;
+                               padding:3px 10px; border-radius:12px;
+                               font-size:12px; font-weight:bold;'>
+                    {s.Signal}
+                  </span>
+                </td>
+              </tr>"));
 
             return $@"
-            <table style='width:100%; border-collapse:collapse;
-                          border:1px solid #ddd;'>
-              <tr style='background:#f5f5f5; font-weight:bold;'>
-                <th style='padding:8px; text-align:left;'>Symbol</th>
-                <th style='padding:8px; text-align:left;'>Name</th>
-                <th style='padding:8px; text-align:left;'>Sector</th>
-                <th style='padding:8px; text-align:left;'>1D%</th>
-                <th style='padding:8px; text-align:left;'>Score</th>
-                <th style='padding:8px; text-align:left;'>Reason</th>
-              </tr>
-              {rows}
+            <table style='width:100%; border-collapse:collapse; font-size:14px;'>
+              <thead>
+                <tr style='background:#f5f6fa; color:#555;
+                           font-size:12px; text-transform:uppercase;'>
+                  <th style='padding:9px 12px; text-align:left;'>#</th>
+                  <th style='padding:9px 12px; text-align:left;'>Symbol</th>
+                  <th style='padding:9px 12px; text-align:left;'>Stock Name</th>
+                  <th style='padding:9px 12px; text-align:right;'>Prev Close</th>
+                  <th style='padding:9px 12px; text-align:right;'>1D %</th>
+                  <th style='padding:9px 12px; text-align:right;'>5D %</th>
+                  <th style='padding:9px 12px; text-align:right;'>Stop Loss</th>
+                  <th style='padding:9px 12px; text-align:center;'>Signal</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows}
+              </tbody>
             </table>";
         }
     }
 }
-
 

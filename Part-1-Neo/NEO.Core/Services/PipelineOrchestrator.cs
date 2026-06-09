@@ -132,52 +132,61 @@ namespace NEO.Core.Services
 
             try
             {
-                // Test DB only
+                // STAGE 0 — Test DB only
                 Console.WriteLine("\n🔵 STAGE 0 — Testing DB Connection...");
                 var dbOk = await _db.TestConnectionAsync();
                 if (!dbOk) throw new Exception("Database connection failed!");
                 Console.WriteLine("   ✅ Database connected");
                 Console.WriteLine("✅ STAGE 0 COMPLETE");
 
-                // Load US sectors from DB
-                Console.WriteLine("\n🔵 Loading US Sectors from DB...");
+                // Load sector data from DB
+                Console.WriteLine("\n🔵 Loading Sector Data from DB...");
                 var usSectors = await _db.LoadSectorsFromDbAsync("Table_2_Sector_1D_US");
-                Console.WriteLine($"\n   📊 US Sectors loaded:");
-                foreach (var s in usSectors)
-                    Console.WriteLine($"   Rank {s.Rank}: {s.SectorName} → {s.PctChange}%");
-
-                // Load India sectors from DB (or use empty if not available)
-                Console.WriteLine("\n🔵 Loading India Sectors from DB...");
                 var indiaSectors = await _db.LoadSectorsFromDbAsync("Table_2_Sector_1D_India");
-
-                // Load China sectors from DB (or use empty if not available)
-                Console.WriteLine("\n🔵 Loading China Sectors from DB...");
                 var chinaSectors = await _db.LoadSectorsFromDbAsync("Table_2_Sector_1D_China");
 
-                // Run Intersection Logic
+                Console.WriteLine($"   US: {usSectors.Count} | India: {indiaSectors.Count} | China: {chinaSectors.Count}");
+
+                // If DB has no sector data → use mock sectors
+                if (usSectors.Count == 0 && indiaSectors.Count == 0 && chinaSectors.Count == 0)
+                {
+                    Console.WriteLine("   ⚠️ No sector data in DB — using mock sectors");
+                    usSectors = GetMockSectors();
+                }
+
+                // STAGE 4 — Intersection Logic
                 var selectedSectors = await Stage4_IntersectionLogic(
-                    runId, businessDate,
-                    usSectors, indiaSectors, chinaSectors);
+                    runId, businessDate, usSectors, indiaSectors, chinaSectors);
 
                 // STAGE 5 — Top Stock Selection (Mock Mode)
-                await Stage5_SelectTopStocks(runId, businessDate, selectedSectors);
+                var topStocks = await Stage5_SelectTopStocks(
+                    runId, businessDate, selectedSectors);
+
+                // STAGE 8 — Risk Management + Stop Loss  ← FIXED (was missing!)
+                var signals = await Stage8_RiskManagement(
+                    runId, businessDate, topStocks);
+
+                // STAGE 9 — Send Email  ← FIXED (was missing!)
+                await Stage9_SendEmail(
+                    runId, businessDate, selectedSectors, signals);
 
                 await _db.InsertRunLogAsync(new RunLog
                 {
                     RunId = runId,
                     BusinessDate = businessDate,
                     Stage = "PIPELINE",
-                    Message = "DB-mode pipeline completed successfully",
+                    Message = $"DB-mode pipeline completed. Picks: {signals.Count}",
                     Status = "SUCCESS"
                 });
 
                 Console.WriteLine("\n==============================================");
-                Console.WriteLine("✅ PIPELINE COMPLETE! (DB Mode)");
+                Console.WriteLine($"✅ PIPELINE COMPLETE! (DB Mode) — {signals.Count} picks");
                 Console.WriteLine("==============================================");
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"\n❌ PIPELINE FAILED: {ex.Message}");
+                Console.WriteLine($"   Stack: {ex.StackTrace}");
 
                 await _db.InsertRunLogAsync(new RunLog
                 {
@@ -189,6 +198,19 @@ namespace NEO.Core.Services
                 });
             }
         }
+
+        // =============================================
+        // MOCK SECTORS — Used when DB has no data yet
+        // =============================================
+        private List<Sector> GetMockSectors() => new List<Sector>
+{
+    new() { SectorName = "Technology",             PctChange = 2.5m, Rank = 1 },
+    new() { SectorName = "Health Care",            PctChange = 1.8m, Rank = 2 },
+    new() { SectorName = "Industrials",            PctChange = 1.5m, Rank = 3 },
+    new() { SectorName = "Consumer Discretionary", PctChange = 1.2m, Rank = 4 },
+    new() { SectorName = "Energy",                 PctChange = 1.0m, Rank = 5 },
+};
+
 
 
         // =============================================
@@ -341,9 +363,9 @@ namespace NEO.Core.Services
         // STAGE 5 — Top Stock Selection
         // =============================================
         private async Task<List<Stock>> Stage5_SelectTopStocks(
-        string runId,
-        DateTime businessDate,
-        List<string> selectedSectors)
+            string runId,
+            DateTime businessDate,
+            List<string> selectedSectors)
         {
             Console.WriteLine("\n🔵 STAGE 5 — Top Stock Selection...");
 
@@ -353,25 +375,40 @@ namespace NEO.Core.Services
                 return new List<Stock>();
             }
 
-            // Check if today's stocks already cached in DB
+            // Check cache — but ONLY accept it if sectors match today's selection
             var cached = await _db.LoadTopStocksAsync(businessDate);
-            if (cached.Count > 0)
+            var cachedSectors = cached.Select(s => s.SectorName).Distinct().ToList();
+
+            bool cacheValid = cached.Count > 0
+                && selectedSectors.All(s =>
+                    cachedSectors.Any(cs =>
+                        cs.Equals(s, StringComparison.OrdinalIgnoreCase)));
+
+            if (cacheValid)
             {
-                Console.WriteLine($"   ✅ Cache hit! Stock data exists for today");
+                Console.WriteLine($"   ✅ Cache hit! Sectors match today's selection");
                 Console.WriteLine($"   → Loaded {cached.Count} stocks from DB");
                 return cached;
             }
 
-            // Try real API first
-            Console.WriteLine("   → No cache found - calling API for real stock data...");
-            List<Stock> topStocks;
+            if (cached.Count > 0 && !cacheValid)
+            {
+                Console.WriteLine($"   ⚠️ Cache INVALID — sectors changed, fetching fresh data");
+                Console.WriteLine($"   → Cached:   {string.Join(", ", cachedSectors)}");
+                Console.WriteLine($"   → Required: {string.Join(", ", selectedSectors)}");
+            }
+            else
+            {
+                Console.WriteLine("   → No cache found — calling API for real stock data...");
+            }
 
+            // Try real API first
+            List<Stock> topStocks;
             try
             {
                 topStocks = await _stockSelector.SelectTopStocksAsync(
                     selectedSectors, topN: 10);
 
-                // If API returned nothing → fall back to mock
                 if (topStocks.Count == 0)
                 {
                     Console.WriteLine("   ⚠️ API returned no data → switching to Mock Mode");
@@ -386,16 +423,17 @@ namespace NEO.Core.Services
                     selectedSectors, topN: 10);
             }
 
-            // Print top list
+            // Print summary
             Console.WriteLine($"\n   📊 Top {topStocks.Count} stocks selected:");
             for (int i = 0; i < topStocks.Count; i++)
                 Console.WriteLine($"    {i + 1}. {topStocks[i].Symbol,-8} " +
+                                  $"Sector: {topStocks[i].SectorName,-25} " +
                                   $"1D: {topStocks[i].Pct1d,6:F2}%  " +
+                                  $"Close: {topStocks[i].PreviousClose:F2}  " +
                                   $"Score: {topStocks[i].Score:F3}");
 
-            // Save to DB
+            // Save fresh data to DB
             await _db.InsertTopStocksAsync(runId, businessDate, topStocks);
-
             Console.WriteLine($"\n   ✅ {topStocks.Count} stocks saved to Table_4_Top_Stocks");
 
             await _db.InsertRunLogAsync(new RunLog
@@ -403,7 +441,8 @@ namespace NEO.Core.Services
                 RunId = runId,
                 BusinessDate = businessDate,
                 Stage = "STAGE_5",
-                Message = $"Top stocks selected: {topStocks.Count}",
+                Message = $"Top stocks selected: {topStocks.Count} " +
+                               $"({string.Join(", ", selectedSectors)})",
                 Status = "SUCCESS"
             });
 

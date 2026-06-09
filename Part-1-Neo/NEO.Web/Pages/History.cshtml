@@ -1,0 +1,292 @@
+﻿@page
+@model HistoryModel
+@{
+    ViewData["Title"] = "Run History";
+}
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ProjectNEO — History</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background: #0f0f1a;
+            color: #e0e0e0;
+            min-height: 100vh;
+        }
+
+        /* ── HEADER ── */
+        .header {
+            background: linear-gradient(135deg, #1a1a2e, #16213e);
+            padding: 20px 40px;
+            border-bottom: 2px solid #0f3460;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+            .header h1 {
+                font-size: 26px;
+                color: #00d4ff;
+                letter-spacing: 2px;
+            }
+
+            .header nav a {
+                color: #888;
+                text-decoration: none;
+                margin-left: 20px;
+                font-size: 14px;
+            }
+
+                .header nav a:hover {
+                    color: #00d4ff;
+                }
+
+                .header nav a.active {
+                    color: #00d4ff;
+                    font-weight: bold;
+                }
+
+        .container {
+            padding: 30px 40px;
+            max-width: 1400px;
+            margin: auto;
+        }
+
+        /* ── SECTION TITLES ── */
+        .section-title {
+            font-size: 16px;
+            font-weight: bold;
+            color: #00d4ff;
+            margin: 30px 0 15px 0;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #0f3460;
+        }
+
+        /* ── TABLE ── */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: #1a1a2e;
+            border-radius: 12px;
+            overflow: hidden;
+            margin-bottom: 30px;
+        }
+
+        th {
+            background: #0f3460;
+            padding: 12px 16px;
+            text-align: left;
+            font-size: 12px;
+            color: #00d4ff;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        td {
+            padding: 12px 16px;
+            font-size: 13px;
+            border-bottom: 1px solid #0f3460;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tr:hover td {
+            background: #16213e;
+            cursor: pointer;
+        }
+
+        /* ── BADGES ── */
+        .badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: bold;
+        }
+
+            .badge.SUCCESS {
+                background: #1a4a2e;
+                color: #27ae60;
+                border: 1px solid #27ae60;
+            }
+
+            .badge.FAILED {
+                background: #4a1a1a;
+                color: #e74c3c;
+                border: 1px solid #e74c3c;
+            }
+
+            .badge.BUY {
+                background: #1a4a2e;
+                color: #27ae60;
+                border: 1px solid #27ae60;
+            }
+
+            .badge.WATCH {
+                background: #4a3a10;
+                color: #f39c12;
+                border: 1px solid #f39c12;
+            }
+
+            .badge.SKIP {
+                background: #4a1a1a;
+                color: #e74c3c;
+                border: 1px solid #e74c3c;
+            }
+
+        .pos {
+            color: #27ae60;
+        }
+
+        .neg {
+            color: #e74c3c;
+        }
+
+        .neu {
+            color: #888;
+        }
+
+        /* ── SELECTED ROW ── */
+        tr.selected td {
+            background: #0f3460 !important;
+        }
+
+        /* ── FOOTER ── */
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: #444;
+            font-size: 12px;
+            border-top: 1px solid #0f3460;
+            margin-top: 40px;
+        }
+
+        .no-data {
+            text-align: center;
+            padding: 40px;
+            color: #555;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ══ HEADER ══ -->
+    <div class="header">
+        <h1>📈 PROJECT NEO</h1>
+        <nav>
+            <a href="/">Dashboard</a>
+            <a href="/History" class="active">History</a>
+        </nav>
+    </div>
+
+    <div class="container">
+
+        <!-- ══ RUN HISTORY ══ -->
+        <div class="section-title">📅 Run History (Last 30 Days)</div>
+
+        @if (Model.Runs.Count == 0)
+        {
+            <div class="no-data">No runs found.</div>
+        }
+        else
+        {
+            <table>
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Run ID</th>
+                        <th>Status</th>
+                        <th>Signals</th>
+                        <th>Email</th>
+                        <th>Time</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var r in Model.Runs)
+                    {
+                        var isSelected = r.BusinessDate.Date == Model.SelectedDate.Date;
+                        <tr class="@(isSelected ? "selected" : "")"
+                            onclick="window.location='/History?date=@r.BusinessDate.ToString("yyyy-MM-dd")'">
+                            <td><strong>@r.BusinessDate.ToString("ddd, dd MMM yyyy")</strong></td>
+                            <td style="color:#888; font-size:12px;">@r.RunId</td>
+                            <td><span class="badge @r.Status">@r.Status</span></td>
+                            <td style="color:#aaa; font-size:12px;">@r.SignalsMsg</td>
+                            <td style="color:#aaa; font-size:12px;">
+                                @(string.IsNullOrEmpty(r.EmailMsg) ? "—" : "✅ Sent")
+                            </td>
+                            <td style="color:#555; font-size:12px;">
+                                @r.CreatedAt.ToString("HH:mm:ss")
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+
+        <!-- ══ SIGNALS FOR SELECTED DATE ══ -->
+        <div class="section-title">
+            📊 Signals for @Model.SelectedDate.ToString("dddd, dd MMM yyyy")
+        </div>
+
+        @if (Model.Signals.Count == 0)
+        {
+            <div class="no-data">No signals for this date.</div>
+        }
+        else
+        {
+            <table>
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Symbol</th>
+                        <th>Name</th>
+                        <th>Sector</th>
+                        <th>Signal</th>
+                        <th>Score</th>
+                        <th>1D %</th>
+                        <th>Reason</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var s in Model.Signals)
+                    {
+                        <tr>
+                            <td style="color:#555;">@s.Rank</td>
+                            <td><strong>@s.Symbol</strong></td>
+                            <td style="color:#aaa;">@s.StockName</td>
+                            <td style="color:#888; font-size:12px;">@s.SectorName</td>
+                            <td><span class="badge @s.Signal">@s.Signal</span></td>
+                            <td>@s.Score.ToString("F3")</td>
+                            <td class="@(s.Pct1d > 0 ? "pos" : s.Pct1d < 0 ? "neg" : "neu")">
+                                @(s.Pct1d > 0 ? "+" : "")@s.Pct1d.ToString("F2")%
+                            </td>
+                            <td style="color:#777; font-size:12px;">@s.Reason</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+
+    </div>
+
+    <div class="footer">
+        ProjectNEO © @DateTime.Now.Year &nbsp;|&nbsp;
+        Powered by Alpha Vantage &nbsp;|&nbsp;
+        Built with ASP.NET Core
+    </div>
+
+</body>
+</html>

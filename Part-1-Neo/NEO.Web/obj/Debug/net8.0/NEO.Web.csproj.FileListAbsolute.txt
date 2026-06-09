@@ -131,7 +131,6 @@ C:\Projects\Part-1-Neo\Part-1-Neo\NEO.Web\obj\Debug\net8.0\NEO.Web.GeneratedMSBu
 C:\Projects\Part-1-Neo\Part-1-Neo\NEO.Web\obj\Debug\net8.0\NEO.Web.AssemblyInfoInputs.cache
 C:\Projects\Part-1-Neo\Part-1-Neo\NEO.Web\obj\Debug\net8.0\NEO.Web.AssemblyInfo.cs
 C:\Projects\Part-1-Neo\Part-1-Neo\NEO.Web\obj\Debug\net8.0\NEO.Web.csproj.CoreCompileInputs.cache
-C:\Projects\Part-1-Neo\Part-1-Neo\NEO.Web\obj\Debug\net8.0\NEO.Web.MvcApplicationPartsAssemblyInfo.cs
 C:\Projects\Part-1-Neo\Part-1-Neo\NEO.Web\obj\Debug\net8.0\NEO.Web.MvcApplicationPartsAssemblyInfo.cache
 C:\Projects\Part-1-Neo\Part-1-Neo\NEO.Web\obj\Debug\net8.0\NEO.Web.RazorAssemblyInfo.cache
 C:\Projects\Part-1-Neo\Part-1-Neo\NEO.Web\obj\Debug\net8.0\NEO.Web.RazorAssemblyInfo.cs
@@ -156,3 +155,4 @@ C:\Projects\Part-1-Neo\Part-1-Neo\NEO.Web\obj\Debug\net8.0\ref\NEO.Web.dll
 C:\Projects\Part-1-Neo\Part-1-Neo\NEO.Web\bin\Debug\net8.0\BouncyCastle.Cryptography.dll
 C:\Projects\Part-1-Neo\Part-1-Neo\NEO.Web\bin\Debug\net8.0\MailKit.dll
 C:\Projects\Part-1-Neo\Part-1-Neo\NEO.Web\bin\Debug\net8.0\MimeKit.dll
+C:\Projects\Part-1-Neo\Part-1-Neo\NEO.Web\obj\Debug\net8.0\NEO.Web.MvcApplicationPartsAssemblyInfo.cs

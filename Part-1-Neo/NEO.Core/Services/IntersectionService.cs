@@ -52,13 +52,33 @@ namespace NEO.Core.Services
                 intersection.ForEach(s => Console.WriteLine($"      ✅ {s}"));
             }
 
-            // Step 4 — If still empty, fall back to top US sectors
-            if (intersection.Count == 0)
+            // Step 4 — Always ensure we have 3 sectors
+            // Fill missing slots using combined score ranking
+            if (intersection.Count < 3)
             {
-                Console.WriteLine("   ⚠️ No intersection found — using top 3 US sectors");
-                intersection = usTop.Take(3).ToList();
-                intersection.ForEach(s => Console.WriteLine($"      ✅ {s} (fallback)"));
+                Console.WriteLine($"   ⚠️ Only {intersection.Count} sector(s) — filling to 3 using combined scores...");
+
+                // Get all sector names by combined score
+                var allScored = ScoreSectors(usSectors, indiaSectors, chinaSectors)
+                    .Select(s => s.SectorName)
+                    .ToList();
+
+                foreach (var sector in allScored)
+                {
+                    if (intersection.Count >= 3) break;
+
+                    // Add if not already in list
+                    if (!intersection.Any(s =>
+                        IsSectorMatch(s, sector)))
+                    {
+                        intersection.Add(sector);
+                        Console.WriteLine($"      ✅ {sector} (filled by score)");
+                    }
+                }
             }
+
+            Console.WriteLine($"\n   ✅ Final selected sectors: {intersection.Count}");
+            return intersection;
 
             Console.WriteLine($"\n   ✅ Final selected sectors: {intersection.Count}");
             return intersection;
@@ -134,8 +154,7 @@ namespace NEO.Core.Services
         // =============================================
         private List<string> GetTopSectorNames(List<Sector> sectors, int topN)
             => sectors
-                .Where(s => s.PctChange > 0)   // Only positive sectors
-                .OrderByDescending(s => s.PctChange)
+                .OrderByDescending(s => s.PctChange)  // ← removed positive-only filter
                 .Take(topN)
                 .Select(s => s.SectorName)
                 .ToList();

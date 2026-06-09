@@ -400,6 +400,9 @@ namespace NEO.Core.Data
         // =============================================
         // INSERT TOP STOCKS
         // =============================================
+        // =============================================
+        // INSERT TOP STOCKS
+        // =============================================
         public async Task InsertTopStocksAsync(
             string runId,
             DateTime businessDate,
@@ -408,25 +411,43 @@ namespace NEO.Core.Data
             using var conn = new SqlConnection(_connectionString);
             await conn.OpenAsync();
 
-            // Delete today's existing data first → prevent duplicates
-            var deleteSql = @"DELETE FROM Table_4_Top_Stocks
-                      WHERE business_date = @date";
+            // Add columns if they don't exist yet
+            var alterSql = @"
+        IF NOT EXISTS (
+            SELECT * FROM sys.columns
+            WHERE object_id = OBJECT_ID('Table_4_Top_Stocks')
+            AND name = 'previous_close')
+        ALTER TABLE Table_4_Top_Stocks ADD previous_close DECIMAL(18,4) DEFAULT 0;
+
+        IF NOT EXISTS (
+            SELECT * FROM sys.columns
+            WHERE object_id = OBJECT_ID('Table_4_Top_Stocks')
+            AND name = 'pct_5d')
+        ALTER TABLE Table_4_Top_Stocks ADD pct_5d DECIMAL(10,4) DEFAULT 0;";
+
+            using (var cmd = new SqlCommand(alterSql, conn))
+                await cmd.ExecuteNonQueryAsync();
+
+            // Delete today's existing data
+            var deleteSql = @"DELETE FROM Table_4_Top_Stocks WHERE business_date = @date";
             using (var cmd = new SqlCommand(deleteSql, conn))
             {
                 cmd.Parameters.AddWithValue("@date", businessDate.Date);
                 await cmd.ExecuteNonQueryAsync();
             }
 
-            // Insert fresh data
+            // Insert fresh data including previous_close and pct_5d
             foreach (var s in stocks)
             {
                 var sql = @"
             INSERT INTO Table_4_Top_Stocks
                 (run_id, business_date, symbol, stock_name,
-                 sector_name, rank, score, pct_1d)
+                 sector_name, rank, score, pct_1d,
+                 previous_close, pct_5d)
             VALUES
                 (@runId, @businessDate, @symbol, @stockName,
-                 @sectorName, @rank, @score, @pct1d)";
+                 @sectorName, @rank, @score, @pct1d,
+                 @previousClose, @pct5d)";
 
                 using var cmd = new SqlCommand(sql, conn);
                 cmd.Parameters.AddWithValue("@runId", runId);
@@ -437,6 +458,8 @@ namespace NEO.Core.Data
                 cmd.Parameters.AddWithValue("@rank", s.Rank);
                 cmd.Parameters.AddWithValue("@score", s.Score);
                 cmd.Parameters.AddWithValue("@pct1d", s.Pct1d);
+                cmd.Parameters.AddWithValue("@previousClose", s.PreviousClose > 0 ? s.PreviousClose : s.Price);
+                cmd.Parameters.AddWithValue("@pct5d", s.Pct5d);
                 await cmd.ExecuteNonQueryAsync();
             }
         }
@@ -508,17 +531,21 @@ namespace NEO.Core.Data
                 await cmd.ExecuteNonQueryAsync();
             }
         }
+        // =============================================
+        // LOAD TOP STOCKS FROM DB CACHE
+        // =============================================
         public async Task<List<Stock>> LoadTopStocksAsync(DateTime businessDate)
         {
             var result = new List<Stock>();
-
             try
             {
                 using var conn = new SqlConnection(_connectionString);
                 await conn.OpenAsync();
 
                 var sql = @"SELECT symbol, stock_name, sector_name,
-                           rank, score, pct_1d
+                           rank, score, pct_1d,
+                           ISNULL(previous_close, 0) AS previous_close,
+                           ISNULL(pct_5d, 0)         AS pct_5d
                     FROM   Table_4_Top_Stocks
                     WHERE  business_date = @date
                     ORDER  BY rank ASC";
@@ -536,17 +563,17 @@ namespace NEO.Core.Data
                         SectorName = reader["sector_name"].ToString() ?? "",
                         Rank = Convert.ToInt32(reader["rank"]),
                         Score = Convert.ToDecimal(reader["score"]),
-                        Pct1d = Convert.ToDecimal(reader["pct_1d"])
+                        Pct1d = Convert.ToDecimal(reader["pct_1d"]),
+                        PreviousClose = Convert.ToDecimal(reader["previous_close"]),
+                        Price = Convert.ToDecimal(reader["previous_close"]),
+                        Pct5d = Convert.ToDecimal(reader["pct_5d"])
                     });
                 }
             }
-            catch
-            {
-                // Table may not exist yet → return empty
-            }
-
+            catch { }
             return result;
         }
+
 
         // =============================================
         // LOAD TODAY'S SIGNALS
@@ -657,6 +684,88 @@ namespace NEO.Core.Data
             catch { }
             return result;
         }
+
+        // =============================================
+        // LOAD RUN HISTORY
+        // =============================================
+        public async Task<List<RunLog>> LoadRunHistoryAsync(int days = 30)
+        {
+            var result = new List<RunLog>();
+            try
+            {
+                using var conn = new SqlConnection(_connectionString);
+                await conn.OpenAsync();
+
+                var sql = @"SELECT run_id, business_date, stage, message,
+                           status, created_at
+                    FROM   Run_Decision_Log
+                    WHERE  stage IN ('PIPELINE','STAGE_8','STAGE_9')
+                    AND    created_at >= DATEADD(DAY, -@days, GETDATE())
+                    ORDER  BY created_at DESC";
+
+                using var cmd = new SqlCommand(sql, conn);
+                cmd.Parameters.AddWithValue("@days", days);
+
+                using var reader = await cmd.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    result.Add(new RunLog
+                    {
+                        RunId = reader["run_id"].ToString() ?? "",
+                        BusinessDate = Convert.ToDateTime(reader["business_date"]),
+                        Stage = reader["stage"].ToString() ?? "",
+                        Message = reader["message"].ToString() ?? "",
+                        Status = reader["status"].ToString() ?? "",
+                        CreatedAt = Convert.ToDateTime(reader["created_at"])
+                    });
+                }
+            }
+            catch { }
+            return result;
+        }
+
+        // =============================================
+        // LOAD SIGNALS BY DATE
+        // =============================================
+        public async Task<List<TradeSignal>> LoadSignalsByDateAsync(DateTime date)
+        {
+            var result = new List<TradeSignal>();
+            try
+            {
+                using var conn = new SqlConnection(_connectionString);
+                await conn.OpenAsync();
+
+                var sql = @"SELECT run_id, business_date, symbol, stock_name,
+                           sector_name, rank, score, pct_1d, signal, reason
+                    FROM   Table_5_Trade_Signals
+                    WHERE  business_date = @date
+                    ORDER  BY rank ASC";
+
+                using var cmd = new SqlCommand(sql, conn);
+                cmd.Parameters.AddWithValue("@date", date.Date);
+
+                using var reader = await cmd.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    result.Add(new TradeSignal
+                    {
+                        RunId = reader["run_id"].ToString() ?? "",
+                        BusinessDate = Convert.ToDateTime(reader["business_date"]),
+                        Symbol = reader["symbol"].ToString() ?? "",
+                        StockName = reader["stock_name"].ToString() ?? "",
+                        SectorName = reader["sector_name"].ToString() ?? "",
+                        Rank = Convert.ToInt32(reader["rank"]),
+                        Score = Convert.ToDecimal(reader["score"]),
+                        Pct1d = Convert.ToDecimal(reader["pct_1d"]),
+                        Signal = reader["signal"].ToString() ?? "",
+                        Reason = reader["reason"].ToString() ?? ""
+                    });
+                }
+            }
+            catch { }
+            return result;
+        }
+
 
     }
 }

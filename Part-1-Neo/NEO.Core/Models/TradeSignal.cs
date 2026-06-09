@@ -14,10 +14,12 @@ namespace NEO.Core.Models
         public int Rank { get; set; }
         public decimal Score { get; set; }
         public decimal Pct1d { get; set; }
-        public string Signal { get; set; } = ""; // BUY / WATCH / SKIP
+        public decimal Pct5d { get; set; }
+        public decimal PreviousClose { get; set; }   // ← NEW
+        public decimal StopLoss { get; set; }         // ← NEW (PreviousClose × 0.95)
+        public string Signal { get; set; } = "";      // BUY / WATCH / SKIP
         public string Reason { get; set; } = "";
         public DateTime BusinessDate { get; set; }
         public string RunId { get; set; } = "";
-
     }
 }

@@ -17,47 +17,107 @@ namespace NEO.Core.Services
         private const decimal MinMomentum = -1.0m;  // 1D% must be > -1%
         private const decimal StrongMomentum = 1.0m;   // 1D% ≥ 1% = strong
         private const decimal MaxPERatio = 45m;    // PE must be < 45
+        private const decimal StopLossPct = 0.95m;  // stop_loss = close × 0.95
+        private const int TopPerSector = 3;      // ← TOP 3 per sector
 
         // =============================================
-        // APPLY RISK RULES TO ALL STOCKS
+        // APPLY RISK RULES — Pick TOP 3 per sector
+        //                     + compute stop loss
+        // =============================================
+        // =============================================
+        // APPLY RISK RULES — TOP 3 per sector
+        // BUY first, fill with WATCH if < 3
         // =============================================
         public List<TradeSignal> ApplyRiskRules(List<Stock> stocks)
         {
-            Console.WriteLine("\n🔵 STAGE 8 — Risk Management...");
-            Console.WriteLine($"   → Applying risk rules to {stocks.Count} stocks");
+            Console.WriteLine("\n🔵 STAGE 8 — Risk Management + Stop Loss...");
+            Console.WriteLine($"   → Evaluating {stocks.Count} stocks");
 
-            var signals = new List<TradeSignal>();
+            // Step 1 — Evaluate every stock
+            var allSignals = stocks.Select(s => EvaluateStock(s)).ToList();
 
-            foreach (var stock in stocks)
+            // Step 2 — For each sector, pick top 3
+            //          BUY first → fill remainder with WATCH
+            var finalSignals = new List<TradeSignal>();
+
+            var sectors = allSignals
+                .Select(s => s.SectorName)
+                .Distinct()
+                .ToList();
+
+            foreach (var sector in sectors)
             {
-                var signal = EvaluateStock(stock);
-                signals.Add(signal);
+                var sectorAll = allSignals
+                    .Where(s => s.SectorName == sector)
+                    .ToList();
+
+                // Top BUY stocks for this sector
+                var buys = sectorAll
+                    .Where(s => s.Signal == "BUY")
+                    .OrderByDescending(s => s.Pct1d)
+                    .ThenByDescending(s => s.Pct5d)
+                    .ThenByDescending(s => s.Score)
+                    .Take(TopPerSector)
+                    .ToList();
+
+                finalSignals.AddRange(buys);
+
+                // Fill remaining slots with WATCH if BUY count < 3
+                int remaining = TopPerSector - buys.Count;
+                if (remaining > 0)
+                {
+                    var usedSymbols = buys.Select(b => b.Symbol).ToHashSet();
+
+                    var watchFills = sectorAll
+                        .Where(s => s.Signal == "WATCH"
+                                 && !usedSymbols.Contains(s.Symbol))
+                        .OrderByDescending(s => s.Pct1d)
+                        .ThenByDescending(s => s.Score)
+                        .Take(remaining)
+                        .ToList();
+
+                    if (watchFills.Count > 0)
+                        Console.WriteLine($"   ⚠️ {sector}: only {buys.Count} BUY " +
+                                          $"→ filling {watchFills.Count} from WATCH");
+
+                    finalSignals.AddRange(watchFills);
+                }
             }
 
-            // Print summary
-            var buys = signals.Count(s => s.Signal == "BUY");
-            var watches = signals.Count(s => s.Signal == "WATCH");
-            var skips = signals.Count(s => s.Signal == "SKIP");
+            // Step 3 — Final sort and re-rank
+            finalSignals = finalSignals
+                .OrderByDescending(s => s.Pct1d)
+                .ThenByDescending(s => s.Score)
+                .ToList();
 
-            Console.WriteLine("\n   📊 Risk Assessment Results:");
-            Console.WriteLine($"   {"Symbol",-8} {"Signal",-6} {"Score",8}  {"1D%",7}  Reason");
-            Console.WriteLine($"   {new string('-', 60)}");
+            for (int i = 0; i < finalSignals.Count; i++)
+                finalSignals[i].Rank = i + 1;
 
-            foreach (var s in signals.OrderBy(s => s.Rank))
-                Console.WriteLine($"   {s.Symbol,-8} " +
-                                  $"{s.Signal,-6} " +
-                                  $"{s.Score,8:F3}  " +
+            // Step 4 — Print final table
+            Console.WriteLine("\n   📊 Final Picks (Top 3 per Sector):");
+            Console.WriteLine($"   {"#",-3} {"Symbol",-8} {"Sector",-25} " +
+                              $"{"1D%",7}  {"Close",8}  {"StopLoss",10}  Signal");
+            Console.WriteLine($"   {new string('-', 85)}");
+
+            foreach (var s in finalSignals)
+                Console.WriteLine($"   {s.Rank,-3} " +
+                                  $"{s.Symbol,-8} " +
+                                  $"{s.SectorName,-25} " +
                                   $"{s.Pct1d,6:F2}%  " +
-                                  $"{s.Reason}");
+                                  $"{s.PreviousClose,8:F2}  " +
+                                  $"{s.StopLoss,10:F2}  " +
+                                  $"{s.Signal}");
 
-            Console.WriteLine($"   {new string('-', 60)}");
-            Console.WriteLine($"   🟢 BUY   : {buys}");
-            Console.WriteLine($"   🟡 WATCH : {watches}");
-            Console.WriteLine($"   🔴 SKIP  : {skips}");
+            Console.WriteLine($"   {new string('-', 85)}");
 
+            foreach (var grp in finalSignals.GroupBy(s => s.SectorName))
+                Console.WriteLine($"   📂 {grp.Key}: {grp.Count()} stocks");
+
+            Console.WriteLine($"\n   ✅ Total final picks: {finalSignals.Count}");
             Console.WriteLine("\n✅ STAGE 8 COMPLETE");
-            return signals;
+            return finalSignals;
         }
+
 
         // =============================================
         // EVALUATE SINGLE STOCK
@@ -80,6 +140,13 @@ namespace NEO.Core.Services
                 reasons.Add($"PE too high ({stock.PERatio:F1})");
             }
 
+            // Compute stop loss: previous_close × 0.95
+            var previousClose = stock.PreviousClose > 0
+                ? stock.PreviousClose
+                : stock.Price;  // fallback to Price if PreviousClose is missing
+
+            var stopLoss = Math.Round(previousClose * StopLossPct, 2);
+
             if (hardFail)
                 return new TradeSignal
                 {
@@ -89,6 +156,9 @@ namespace NEO.Core.Services
                     Rank = stock.Rank,
                     Score = stock.Score,
                     Pct1d = stock.Pct1d,
+                    Pct5d = stock.Pct5d,
+                    PreviousClose = previousClose,
+                    StopLoss = stopLoss,
                     Signal = "SKIP",
                     Reason = string.Join(", ", reasons)
                 };
@@ -100,12 +170,14 @@ namespace NEO.Core.Services
             if (stock.Score >= StrongBuyMinScore && stock.Pct1d >= StrongMomentum)
             {
                 signal = "BUY";
-                reason = $"strong score ({stock.Score:F3}) + momentum ({stock.Pct1d:F2}%)";
+                reason = $"strong score ({stock.Score:F3}) + " +
+                         $"momentum ({stock.Pct1d:F2}%)";
             }
             else if (stock.Score >= WatchMinScore)
             {
                 signal = "WATCH";
-                reason = $"score OK ({stock.Score:F3}) but momentum weak ({stock.Pct1d:F2}%)";
+                reason = $"score OK ({stock.Score:F3}) but " +
+                         $"momentum weak ({stock.Pct1d:F2}%)";
             }
             else
             {
@@ -121,10 +193,12 @@ namespace NEO.Core.Services
                 Rank = stock.Rank,
                 Score = stock.Score,
                 Pct1d = stock.Pct1d,
+                Pct5d = stock.Pct5d,
+                PreviousClose = previousClose,
+                StopLoss = stopLoss,
                 Signal = signal,
                 Reason = reason
             };
         }
     }
 }
-
