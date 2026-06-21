@@ -11,7 +11,8 @@
           "MailKit": "4.3.0",
           "Microsoft.Data.SqlClient": "7.0.1",
           "Microsoft.Extensions.Logging.Abstractions": "10.0.8",
-          "Microsoft.IdentityModel.JsonWebTokens": "8.18.0"
+          "Microsoft.IdentityModel.JsonWebTokens": "8.18.0",
+          "Newtonsoft.Json": "13.0.4"
         },
         "runtime": {
           "NEO.Core.dll": {}
@@ -310,6 +311,14 @@
           }
         }
       },
+      "Newtonsoft.Json/13.0.4": {
+        "runtime": {
+          "lib/net6.0/Newtonsoft.Json.dll": {
+            "assemblyVersion": "13.0.0.0",
+            "fileVersion": "13.0.4.30916"
+          }
+        }
+      },
       "System.Configuration.ConfigurationManager/8.0.1": {
         "dependencies": {
           "System.Diagnostics.EventLog": "8.0.1",
@@ -544,6 +553,13 @@
       "sha512": "sha512-39KDXuERDy5VmHIn7NnCWvIVp/Ar4qnxZWg9m06DfRqDbW1B6zFv9o3Tdoa4CCu71tE/0SRqRCN5Z+bbffw6uw==",
       "path": "mimekit/4.3.0",
       "hashPath": "mimekit.4.3.0.nupkg.sha512"
+    },
+    "Newtonsoft.Json/13.0.4": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-pdgNNMai3zv51W5aq268sujXUyx7SNdE2bj1wZcWjAQrKMFZV260lbqYop1d2GM67JI1huLRwxo9ZqnfF/lC6A==",
+      "path": "newtonsoft.json/13.0.4",
+      "hashPath": "newtonsoft.json.13.0.4.nupkg.sha512"
     },
     "System.Configuration.ConfigurationManager/8.0.1": {
       "type": "package",

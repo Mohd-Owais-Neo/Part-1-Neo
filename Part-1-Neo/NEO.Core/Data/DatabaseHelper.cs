@@ -1,6 +1,7 @@
 ﻿using Microsoft.Data.SqlClient;
 using NEO.Core.Models;
 using NEO.Core.Services;
+using Microsoft.Data.SqlClient;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -202,7 +203,7 @@ namespace NEO.Core.Data
                 cmd.Parameters.AddWithValue("@Pct5d", stock.Pct5d);
                 cmd.Parameters.AddWithValue("@Pct20d", stock.Pct20d);
                 cmd.Parameters.AddWithValue("@MarketCap", stock.MarketCap);
-                cmd.Parameters.AddWithValue("@PeRatio", stock.PeRatio);
+                cmd.Parameters.AddWithValue("@PeRatio", stock.PERatio);
                 cmd.Parameters.AddWithValue("@AvgTurnover30d", stock.AvgTurnover30d);
 
                 await cmd.ExecuteNonQueryAsync();
@@ -765,6 +766,117 @@ namespace NEO.Core.Data
             catch { }
             return result;
         }
+
+        //public async Task<List<Stock>> LoadStocksBySectorAsync(string sectorName)
+        //{
+        //    var result = new List<Stock>();
+
+        //    using var conn = new SqlConnection(_connectionString);
+        //    await conn.OpenAsync();
+
+        //    var sql = @"
+        //SELECT symbol, stock_name, sector_name,
+        //       previous_close, pct_1d, pct_5d, pct_20d,
+        //       marketcap, pe_ratio, avg_turnover_30d
+        //FROM Table_1_All_Stocks
+        //WHERE sector_name = @SectorName
+        //  AND business_date = CAST(GETDATE() AS DATE)";
+
+        //    using var cmd = new SqlCommand(sql, conn);
+        //    cmd.Parameters.AddWithValue("@SectorName", sectorName);
+
+        //    using var reader = await cmd.ExecuteReaderAsync();
+
+        //    while (await reader.ReadAsync())
+        //    {
+        //        result.Add(new Stock
+        //        {
+        //            Symbol = reader["symbol"].ToString() ?? "",
+        //            StockName = reader["stock_name"].ToString() ?? "",
+        //            SectorName = reader["sector_name"].ToString() ?? "",
+        //            PreviousClose = Convert.ToDecimal(reader["previous_close"]),
+        //            Pct1d = Convert.ToDecimal(reader["pct_1d"]),
+        //            Pct5d = Convert.ToDecimal(reader["pct_5d"]),
+        //            Pct20d = Convert.ToDecimal(reader["pct_20d"]),
+        //            MarketCap = Convert.ToDecimal(reader["marketcap"]),
+        //            PERatio = Convert.ToDecimal(reader["pe_ratio"]),
+        //            AvgTurnover30d = Convert.ToDecimal(reader["avg_turnover_30d"])
+        //        });
+        //    }
+
+        //    return result;
+        //}
+
+        public async Task<List<Stock>> LoadStocksBySectorAsync(string sectorName)
+        {
+            var result = new List<Stock>();
+
+            try
+            {
+                using var conn = new SqlConnection(_connectionString);
+                await conn.OpenAsync();
+
+                // Get latest business date available in Table_1_All_Stocks
+                var dateSql = @"
+            SELECT MAX(business_date)
+            FROM Table_1_All_Stocks";
+
+                using var dateCmd = new SqlCommand(dateSql, conn);
+                var latestDate = await dateCmd.ExecuteScalarAsync();
+
+                if (latestDate == null || latestDate == DBNull.Value)
+                {
+                    Console.WriteLine("   ⚠️ No stock data found in Table_1_All_Stocks");
+                    return result;
+                }
+
+                var sql = @"
+            SELECT symbol,
+                   stock_name,
+                   sector_name,
+                   ISNULL(previous_close, 0) AS previous_close,
+                   ISNULL(pct_1d, 0)         AS pct_1d,
+                   ISNULL(pct_5d, 0)         AS pct_5d,
+                   ISNULL(pct_20d, 0)        AS pct_20d,
+                   ISNULL(marketcap, 0)      AS marketcap,
+                   ISNULL(pe_ratio, 0)       AS pe_ratio,
+                   ISNULL(avg_turnover_30d, 0) AS avg_turnover_30d
+            FROM Table_1_All_Stocks
+            WHERE business_date = @date
+              AND LOWER(LTRIM(RTRIM(sector_name))) = LOWER(LTRIM(RTRIM(@sectorName)))
+            ORDER BY pct_1d DESC";
+
+                using var cmd = new SqlCommand(sql, conn);
+                cmd.Parameters.AddWithValue("@date", Convert.ToDateTime(latestDate).Date);
+                cmd.Parameters.AddWithValue("@sectorName", sectorName);
+
+                using var reader = await cmd.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    result.Add(new Stock
+                    {
+                        Symbol = reader["symbol"].ToString() ?? "",
+                        StockName = reader["stock_name"].ToString() ?? "",
+                        SectorName = reader["sector_name"].ToString() ?? "",
+                        PreviousClose = Convert.ToDecimal(reader["previous_close"]),
+                        Price = Convert.ToDecimal(reader["previous_close"]),
+                        Pct1d = Convert.ToDecimal(reader["pct_1d"]),
+                        Pct5d = Convert.ToDecimal(reader["pct_5d"]),
+                        Pct20d = Convert.ToDecimal(reader["pct_20d"]),
+                        MarketCap = Convert.ToDecimal(reader["marketcap"]),
+                        PERatio = Convert.ToDecimal(reader["pe_ratio"]),
+                        AvgTurnover30d = Convert.ToDecimal(reader["avg_turnover_30d"])
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"   ❌ Error loading stocks for sector '{sectorName}': {ex.Message}");
+            }
+
+            return result;
+        }
+
 
 
     }

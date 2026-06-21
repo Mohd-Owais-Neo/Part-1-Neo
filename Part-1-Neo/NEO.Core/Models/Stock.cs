@@ -20,7 +20,7 @@ namespace NEO.Core.Models
         public decimal Pct5d { get; set; }
         public decimal Pct20d { get; set; }
         public decimal MarketCap { get; set; }
-        public decimal PeRatio { get; set; }
+        public decimal PERatio { get; set; }
         public decimal AvgTurnover30d { get; set; }
         public int RankWithinSector { get; set; }
         public string ReasonCode { get; set; } = string.Empty;
@@ -28,7 +28,7 @@ namespace NEO.Core.Models
         public DateTime CreatedAt { get; set; }
         public decimal Score { get; set; }
         public int Rank { get; set; }
-        public decimal PERatio { get; set; }
+        //public decimal PERatio { get; set; }
         public decimal Volume { get; set; }
 
     }

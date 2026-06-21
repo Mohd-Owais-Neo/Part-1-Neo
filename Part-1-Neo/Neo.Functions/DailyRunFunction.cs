@@ -2,7 +2,6 @@ using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using NEO.Core.Services;
-using System;
 
 namespace NEO.Functions
 {
@@ -19,14 +18,13 @@ namespace NEO.Functions
             _configuration = configuration;
         }
 
-        // Runs Monday-Friday at 8:00 AM IST (2:30 AM UTC)
+        // Monday-Friday at 8:00 AM IST (2:30 AM UTC)
         [Function("DailyRunFunction")]
         public async Task Run(
             [TimerTrigger("0 30 2 * * 1-5")] TimerInfo myTimer)
         {
-            _logger.LogInformation(
-                "ProjectNEO Daily Run started at: {time}",
-                DateTime.Now);
+            _logger.LogInformation("ProjectNEO DailyRunFunction started at: {time}", DateTime.Now);
+            _logger.LogInformation("DailyRunFunction is the ONLY production scheduler for ProjectNEO.");
 
             try
             {
@@ -35,7 +33,7 @@ namespace NEO.Functions
                     ?? throw new Exception("Connection string not found!");
 
                 var apiKey = _configuration["AppSettings:AlphaVantageApiKey"]
-                    ?? throw new Exception("API Key not found!");
+                    ?? throw new Exception("Alpha Vantage API key not found!");
 
                 var smtpHost = _configuration["EmailSettings:SmtpHost"] ?? "smtp.gmail.com";
                 var smtpPort = int.Parse(_configuration["EmailSettings:SmtpPort"] ?? "587");
@@ -44,18 +42,21 @@ namespace NEO.Functions
                 var toEmail = _configuration["EmailSettings:ToEmail"] ?? "";
 
                 var orchestrator = new PipelineOrchestrator(
-                    connStr, apiKey,
-                    smtpHost, smtpPort,
-                    fromEmail, fromPassword, toEmail);
+                    connStr,
+                    apiKey,
+                    smtpHost,
+                    smtpPort,
+                    fromEmail,
+                    fromPassword,
+                    toEmail);
+
                 await orchestrator.RunDailyPipelineAsync();
 
-                _logger.LogInformation("ProjectNEO Daily Run completed successfully");
+                _logger.LogInformation("ProjectNEO DailyRunFunction completed successfully.");
             }
             catch (Exception ex)
             {
-                _logger.LogError(
-                    "ProjectNEO Daily Run failed: {error}",
-                    ex.Message);
+                _logger.LogError(ex, "ProjectNEO DailyRunFunction failed.");
                 throw;
             }
         }
