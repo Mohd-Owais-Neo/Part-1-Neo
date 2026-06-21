@@ -1,10 +1,13 @@
-﻿var builder = WebApplication.CreateBuilder(args);
+﻿using NEO.Core.Extensions;
+
+var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddRazorPages();
+builder.Services.AddNeoCoreServices(builder.Configuration);
 
 // IMPORTANT:
 // Web host should NOT run the pipeline automatically.
-// Azure Functions (DailyRunFunction) will be the ONLY production scheduler.
+// Azure Functions (DailyRunFunction) is the ONLY production scheduler.
 
 var app = builder.Build();
 
