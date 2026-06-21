@@ -21,31 +21,27 @@ namespace NEO.Core.Services
         private readonly EmailAlertService _emailAlert;
 
         public PipelineOrchestrator(
-            string connectionString,
-            string apiKey,
-            string smtpHost,
-            int smtpPort,
-            string fromEmail,
-            string fromPassword,
-            string toEmail)
+            DatabaseHelper db,
+            ApiDataService api,
+            MarketDataService marketData,
+            IntersectionService intersection,
+            StockFilterService stockFilter,
+            TopStockSelectorService stockSelector,
+            RiskManagementService riskManager,
+            EmailAlertService emailAlert)
         {
-            _db = new DatabaseHelper(connectionString);
-            _api = new ApiDataService(apiKey);
-            _marketData = new MarketDataService(_db);
-            _intersection = new IntersectionService();
-            _stockFilter = new StockFilterService();
-            _stockSelector = new TopStockSelectorService(_db, _stockFilter);
-            _riskManager = new RiskManagementService();
-            _emailAlert = new EmailAlertService(
-                smtpHost,
-                smtpPort,
-                fromEmail,
-                fromPassword,
-                toEmail);
+            _db = db;
+            _api = api;
+            _marketData = marketData;
+            _intersection = intersection;
+            _stockFilter = stockFilter;
+            _stockSelector = stockSelector;
+            _riskManager = riskManager;
+            _emailAlert = emailAlert;
         }
 
         // =============================================
-        // MASTER RUN — Called by app startup / scheduler
+        // MASTER RUN — Called by Azure Function / manual host
         // =============================================
         public async Task RunDailyPipelineAsync()
         {
@@ -60,61 +56,30 @@ namespace NEO.Core.Services
 
             try
             {
-                // STAGE 0 — Test connections
                 await Stage0_TestConnections(runId, businessDate);
-
-                // STAGE 0.5 — Load Yahoo stock data into Table_1_All_Stocks
                 await Stage0_5_LoadMainStockData(runId, businessDate);
 
-                // STAGE 1 — Fetch US sectors
                 var usSectors = await Stage1_FetchSectors(
-                    runId,
-                    businessDate,
-                    "US",
-                    "Table_2_Sector_1D_US");
+                    runId, businessDate, "US", "Table_2_Sector_1D_US");
 
-                // STAGE 2 — Fetch India sectors
                 var indiaSectors = await Stage1_FetchSectors(
-                    runId,
-                    businessDate,
-                    "INDIA",
-                    "Table_2_Sector_1D_India");
+                    runId, businessDate, "INDIA", "Table_2_Sector_1D_India");
 
-                // STAGE 3 — Fetch China sectors
                 var chinaSectors = await Stage1_FetchSectors(
-                    runId,
-                    businessDate,
-                    "CHINA",
-                    "Table_2_Sector_1D_China");
+                    runId, businessDate, "CHINA", "Table_2_Sector_1D_China");
 
-                // STAGE 4 — Intersection Logic
                 var selectedSectors = await Stage4_IntersectionLogic(
-                    runId,
-                    businessDate,
-                    usSectors,
-                    indiaSectors,
-                    chinaSectors);
+                    runId, businessDate, usSectors, indiaSectors, chinaSectors);
 
-                // STAGE 5 — Top stock selection from DB
                 var topStocks = await Stage5_SelectTopStocks(
-                    runId,
-                    businessDate,
-                    selectedSectors);
+                    runId, businessDate, selectedSectors);
 
-                // STAGE 8 — Risk management
                 var signals = await Stage8_RiskManagement(
-                    runId,
-                    businessDate,
-                    topStocks);
+                    runId, businessDate, topStocks);
 
-                // STAGE 9 — Email alert
                 await Stage9_SendEmail(
-                    runId,
-                    businessDate,
-                    selectedSectors,
-                    signals);
+                    runId, businessDate, selectedSectors, signals);
 
-                // Final run log
                 await _db.InsertRunLogAsync(new RunLog
                 {
                     RunId = runId,
@@ -147,105 +112,11 @@ namespace NEO.Core.Services
         }
 
         // =============================================
-        // RUN FROM DB CACHE MODE — no external API for sectors
-        // =============================================
-        public async Task RunFromDbDataAsync()
-        {
-            var runId = $"RUN-{DateTime.Now:yyyyMMdd-HHmmss}";
-            var businessDate = DateTime.Today;
-
-            Console.WriteLine("==============================================");
-            Console.WriteLine("PROJECT NEO - Pipeline (DB Mode)");
-            Console.WriteLine($"Run ID    : {runId}");
-            Console.WriteLine($"Date      : {businessDate:yyyy-MM-dd}");
-            Console.WriteLine("==============================================");
-            Console.WriteLine("ℹ️ Using cached DB data where possible");
-
-            try
-            {
-                Console.WriteLine("\n🔵 STAGE 0 — Testing DB Connection...");
-                var dbOk = await _db.TestConnectionAsync();
-
-                if (!dbOk)
-                    throw new Exception("Database connection failed!");
-
-                Console.WriteLine("   ✅ Database connected");
-                Console.WriteLine("✅ STAGE 0 COMPLETE");
-
-                // Load sectors directly from DB
-                Console.WriteLine("\n🔵 Loading Sector Data from DB...");
-                var usSectors = await _db.LoadSectorsFromDbAsync("Table_2_Sector_1D_US");
-                var indiaSectors = await _db.LoadSectorsFromDbAsync("Table_2_Sector_1D_India");
-                var chinaSectors = await _db.LoadSectorsFromDbAsync("Table_2_Sector_1D_China");
-
-                Console.WriteLine($"   US: {usSectors.Count} | India: {indiaSectors.Count} | China: {chinaSectors.Count}");
-
-                if (usSectors.Count == 0 && indiaSectors.Count == 0 && chinaSectors.Count == 0)
-                {
-                    Console.WriteLine("   ⚠️ No sector data in DB — using mock sectors");
-                    usSectors = GetMockSectors();
-                }
-
-                var selectedSectors = await Stage4_IntersectionLogic(
-                    runId,
-                    businessDate,
-                    usSectors,
-                    indiaSectors,
-                    chinaSectors);
-
-                var topStocks = await Stage5_SelectTopStocks(
-                    runId,
-                    businessDate,
-                    selectedSectors);
-
-                var signals = await Stage8_RiskManagement(
-                    runId,
-                    businessDate,
-                    topStocks);
-
-                await Stage9_SendEmail(
-                    runId,
-                    businessDate,
-                    selectedSectors,
-                    signals);
-
-                await _db.InsertRunLogAsync(new RunLog
-                {
-                    RunId = runId,
-                    BusinessDate = businessDate,
-                    Stage = "PIPELINE",
-                    Message = $"DB-mode pipeline completed. Picks: {signals.Count}",
-                    Status = "SUCCESS"
-                });
-
-                Console.WriteLine();
-                Console.WriteLine("==============================================");
-                Console.WriteLine($"✅ PIPELINE COMPLETE! (DB Mode) — {signals.Count} picks");
-                Console.WriteLine("==============================================");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine();
-                Console.WriteLine($"❌ PIPELINE FAILED: {ex.Message}");
-                Console.WriteLine($"   Stack: {ex.StackTrace}");
-
-                await _db.InsertRunLogAsync(new RunLog
-                {
-                    RunId = runId,
-                    BusinessDate = businessDate,
-                    Stage = "PIPELINE",
-                    Message = $"Pipeline failed: {ex.Message}",
-                    Status = "FAILED"
-                });
-            }
-        }
-
-        // =============================================
-        // STAGE 0 — Test DB + Alpha Vantage
+        // STAGE 0 — Test All Connections
         // =============================================
         private async Task Stage0_TestConnections(string runId, DateTime businessDate)
         {
-            Console.WriteLine("\n🔵 STAGE 0 — Testing Connections...");
+            Console.WriteLine("\n🔵 STAGE 0 - Testing Connections...");
 
             var dbOk = await _db.TestConnectionAsync();
             if (!dbOk)
@@ -275,17 +146,17 @@ namespace NEO.Core.Services
         }
 
         // =============================================
-        // STAGE 0.5 — Load Yahoo stock data into Table_1_All_Stocks
+        // STAGE 0.5 — Load main stock data
         // =============================================
         private async Task Stage0_5_LoadMainStockData(string runId, DateTime businessDate)
         {
-            Console.WriteLine("\n🔵 STAGE 0.5 — Loading Main Stock Data from Yahoo...");
+            Console.WriteLine("\n🔵 STAGE 0.5 - Loading Main Stock Data from Yahoo...");
 
             var hasData = await _db.HasTodaysDataAsync("Table_1_All_Stocks", businessDate);
 
             if (hasData)
             {
-                Console.WriteLine("   ✅ Stock data already exists for today — skipping Yahoo fetch");
+                Console.WriteLine("   ✅ Stock data already exists for today - skipping Yahoo fetch");
                 return;
             }
 
@@ -312,7 +183,7 @@ namespace NEO.Core.Services
         }
 
         // =============================================
-        // STAGE 1 / 2 / 3 — Fetch Sector Rankings
+        // STAGE 1 / 2 / 3 — Fetch sector rankings
         // =============================================
         private async Task<List<Sector>> Stage1_FetchSectors(
             string runId,
@@ -333,7 +204,7 @@ namespace NEO.Core.Services
                 return cached;
             }
 
-            Console.WriteLine("   → No cache found — calling API...");
+            Console.WriteLine("   → No cache found - calling API...");
 
             var sectors = await _api.FetchSectorPerformanceAsync(market);
 
@@ -353,6 +224,8 @@ namespace NEO.Core.Services
                 return sectors;
             }
 
+            // KEEP THIS RULE ACTIVE IN CURRENT VERSION:
+            // Forbidden sectors must still be excluded.
             var forbidden = await _db.GetForbiddenSectorsAsync();
 
             var filtered = sectors
@@ -390,7 +263,7 @@ namespace NEO.Core.Services
         }
 
         // =============================================
-        // STAGE 4 — Intersection Logic
+        // STAGE 4 — Intersection logic
         // =============================================
         private async Task<List<string>> Stage4_IntersectionLogic(
             string runId,
@@ -399,18 +272,12 @@ namespace NEO.Core.Services
             List<Sector> indiaSectors,
             List<Sector> chinaSectors)
         {
-            Console.WriteLine("\n🔵 STAGE 4 — Intersection Logic...");
+            Console.WriteLine("\n🔵 STAGE 4 - Intersection Logic...");
 
-            var scores = _intersection.ScoreSectors(
-                usSectors,
-                indiaSectors,
-                chinaSectors);
+            var scores = _intersection.ScoreSectors(usSectors, indiaSectors, chinaSectors);
 
             var selectedSectors = _intersection.FindIntersectingSectors(
-                usSectors,
-                indiaSectors,
-                chinaSectors,
-                topN: 5);
+                usSectors, indiaSectors, chinaSectors, topN: 5);
 
             Console.WriteLine("\n   🎯 SELECTED SECTORS FOR INVESTMENT:");
             for (int i = 0; i < selectedSectors.Count; i++)
@@ -420,10 +287,7 @@ namespace NEO.Core.Services
 
             await _db.EnsureTableExistsAsync("Table_3_Sector_Intersection");
             await _db.InsertIntersectionResultAsync(
-                runId,
-                businessDate,
-                selectedSectors,
-                scores);
+                runId, businessDate, selectedSectors, scores);
 
             await _db.InsertRunLogAsync(new RunLog
             {
@@ -439,18 +303,18 @@ namespace NEO.Core.Services
         }
 
         // =============================================
-        // STAGE 5 — Top Stock Selection from DB
+        // STAGE 5 — Top stock selection
         // =============================================
         private async Task<List<Stock>> Stage5_SelectTopStocks(
             string runId,
             DateTime businessDate,
             List<string> selectedSectors)
         {
-            Console.WriteLine("\n🔵 STAGE 5 — Top Stock Selection...");
+            Console.WriteLine("\n🔵 STAGE 5 - Top Stock Selection...");
 
             if (selectedSectors.Count == 0)
             {
-                Console.WriteLine("   ⚠️ No sectors selected — skipping");
+                Console.WriteLine("   ⚠️ No sectors selected - skipping");
                 return new List<Stock>();
             }
 
@@ -474,13 +338,13 @@ namespace NEO.Core.Services
 
             if (cached.Count > 0 && !cacheValid)
             {
-                Console.WriteLine("   ⚠️ Cache INVALID — sectors changed, selecting fresh data");
+                Console.WriteLine("   ⚠️ Cache INVALID - sectors changed, selecting fresh data");
                 Console.WriteLine($"   → Cached:   {string.Join(", ", cachedSectors)}");
                 Console.WriteLine($"   → Required: {string.Join(", ", selectedSectors)}");
             }
             else
             {
-                Console.WriteLine("   → No cache found — loading from Table_1_All_Stocks...");
+                Console.WriteLine("   → No cache found - loading from Table_1_All_Stocks...");
             }
 
             List<Stock> topStocks;
@@ -491,14 +355,13 @@ namespace NEO.Core.Services
 
                 if (topStocks.Count == 0)
                 {
-                    Console.WriteLine("   ⚠️ DB returned no usable stock data → switching to Mock Mode");
-                    topStocks = _stockSelector.SelectTopStocksFromMockData(selectedSectors, topN: 10);
+                    Console.WriteLine("   ⚠️ DB returned no usable stock data");
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"   ⚠️ DB mode error: {ex.Message} → switching to Mock Mode");
-                topStocks = _stockSelector.SelectTopStocksFromMockData(selectedSectors, topN: 10);
+                Console.WriteLine($"   ⚠️ DB mode error: {ex.Message}");
+                topStocks = new List<Stock>();
             }
 
             Console.WriteLine($"\n   📊 Top {topStocks.Count} stocks selected:");
@@ -530,7 +393,7 @@ namespace NEO.Core.Services
         }
 
         // =============================================
-        // STAGE 8 — Risk Management
+        // STAGE 8 — Risk management
         // =============================================
         private async Task<List<TradeSignal>> Stage8_RiskManagement(
             string runId,
@@ -588,20 +451,6 @@ namespace NEO.Core.Services
 
             Console.WriteLine("✅ STAGE 9 COMPLETE");
         }
-
-        // =============================================
-        // MOCK SECTORS — DB-mode fallback
-        // =============================================
-        private List<Sector> GetMockSectors()
-        {
-            return new List<Sector>
-            {
-                new() { SectorName = "Technology",             PctChange = 2.5m, Rank = 1 },
-                new() { SectorName = "Health Care",            PctChange = 1.8m, Rank = 2 },
-                new() { SectorName = "Industrials",            PctChange = 1.5m, Rank = 3 },
-                new() { SectorName = "Consumer Discretionary", PctChange = 1.2m, Rank = 4 },
-                new() { SectorName = "Energy",                 PctChange = 1.0m, Rank = 5 }
-            };
-        }
     }
 }
+
