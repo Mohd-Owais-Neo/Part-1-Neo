@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "dgSpecHash": "xWSCtf84CkQ=",
+  "dgSpecHash": "oet6Rvnk/Qo=",
   "success": true,
   "projectFilePath": "C:\\Projects\\Part-1-Neo\\Part-1-Neo\\NEO.Core\\NEO.Core.csproj",
   "expectedPackageFiles": [
@@ -46,8 +46,7 @@
       "filePath": "C:\\Projects\\Part-1-Neo\\Part-1-Neo\\NEO.Core\\NEO.Core.csproj",
       "libraryId": "MailKit",
       "targetGraphs": [
-        "net8.0",
-        "net8.0/win-x64"
+        "net8.0"
       ]
     }
   ]

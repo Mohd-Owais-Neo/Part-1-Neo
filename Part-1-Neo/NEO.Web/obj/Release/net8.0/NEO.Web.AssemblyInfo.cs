@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("NEO.Web")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+da594f27ceffe50e1903f4794fd37fc12e9bea61")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+d21944ee0f095346ad675ff71b8908bfd3d86257")]
 [assembly: System.Reflection.AssemblyProductAttribute("NEO.Web")]
 [assembly: System.Reflection.AssemblyTitleAttribute("NEO.Web")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
