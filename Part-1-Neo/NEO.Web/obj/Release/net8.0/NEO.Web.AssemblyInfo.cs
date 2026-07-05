@@ -12,13 +12,9 @@ using System;
 using System.Reflection;
 
 [assembly: System.Reflection.AssemblyCompanyAttribute("NEO.Web")]
-[assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
+[assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-<<<<<<< HEAD
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+ef599587ea2a1e15fdadf31467aad0f24b4ac73d")]
-=======
 [assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+a21e2d958d7ab8250d096093d3f74a12deeeb538")]
->>>>>>> 43c8d0496720ab915cbb1926db2143f806cf481f
 [assembly: System.Reflection.AssemblyProductAttribute("NEO.Web")]
 [assembly: System.Reflection.AssemblyTitleAttribute("NEO.Web")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
