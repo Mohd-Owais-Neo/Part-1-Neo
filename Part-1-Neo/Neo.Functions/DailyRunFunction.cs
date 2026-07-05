@@ -33,7 +33,7 @@ namespace NEO.Functions
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "ProjectNEO DailyRunFunction failed.");
+                _logger.LogError("ProjectNEO DailyRunFunction failed. FULL ERROR: {error}", ex.ToString());
                 throw;
             }
         }
