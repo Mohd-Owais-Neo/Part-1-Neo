@@ -16,5 +16,23 @@
         "properties": {}
       }
     ]
+  },
+  {
+    "name": "DailyStockFetchFunction",
+    "scriptFile": "Neo.Functions.dll",
+    "entryPoint": "NEO.Functions.DailyStockFetchFunction.Run",
+    "language": "dotnet-isolated",
+    "properties": {
+      "IsCodeless": false
+    },
+    "bindings": [
+      {
+        "name": "myTimer",
+        "direction": "In",
+        "type": "timerTrigger",
+        "schedule": "0 30 0 * * 1-5",
+        "properties": {}
+      }
+    ]
   }
 ]

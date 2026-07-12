@@ -57,7 +57,7 @@ namespace NEO.Core.Services
             try
             {
                 await Stage0_TestConnections(runId, businessDate);
-                await Stage0_5_LoadMainStockData(runId, businessDate);
+                await Stage0_5_VerifyMainStockData(runId, businessDate);
 
                 var usSectors = await Stage1_FetchSectors(
                     runId, businessDate, "US", "Table_2_Sector_1D_US");
@@ -130,8 +130,8 @@ namespace NEO.Core.Services
 
             Console.WriteLine("   ✅ Alpha Vantage API connected");
 
-            Console.WriteLine("   → Waiting 15 seconds for API rate limit reset...");
-            await Task.Delay(15000);
+            Console.WriteLine("   → Skipping API wait to keep function within timeout...");
+            //await Task.Delay(15000);
 
             await _db.InsertRunLogAsync(new RunLog
             {
@@ -148,38 +148,48 @@ namespace NEO.Core.Services
         // =============================================
         // STAGE 0.5 — Load main stock data
         // =============================================
-        private async Task Stage0_5_LoadMainStockData(string runId, DateTime businessDate)
+        // =============================================
+        // STAGE 0.5 — Verify stock data already loaded
+        // Stock fetching is handled by DailyStockFetchFunction at 6 AM IST
+        // =============================================
+        private async Task Stage0_5_VerifyMainStockData(string runId, DateTime businessDate)
         {
-            Console.WriteLine("\n🔵 STAGE 0.5 - Loading Main Stock Data from Yahoo...");
+            Console.WriteLine("\n🔵 STAGE 0.5 - Verifying Main Stock Data...");
 
             var hasData = await _db.HasTodaysDataAsync("Table_1_All_Stocks", businessDate);
 
-            if (hasData)
+            if (!hasData)
             {
-                Console.WriteLine("   ✅ Stock data already exists for today - skipping Yahoo fetch");
-                return;
+                var message =
+                    "No stock data found for today in Table_1_All_Stocks. " +
+                    "DailyStockFetchFunction must run before DailyRunFunction.";
+
+                Console.WriteLine($"   ❌ {message}");
+
+                await _db.InsertRunLogAsync(new RunLog
+                {
+                    RunId = runId,
+                    BusinessDate = businessDate,
+                    Stage = "STAGE_0_5",
+                    Message = message,
+                    Status = "FAILED"
+                });
+
+                throw new Exception(message);
             }
 
-            var stocks = await _marketData.GetStocksFromYahooAsync();
-
-            if (stocks.Count == 0)
-            {
-                Console.WriteLine("   ⚠️ Yahoo returned no stock data");
-                return;
-            }
-
-            await _db.InsertAllStocksAsync(runId, businessDate, stocks);
-
-            Console.WriteLine($"   ✅ Saved {stocks.Count} stocks to Table_1_All_Stocks");
+            Console.WriteLine("   ✅ Stock data exists for today");
 
             await _db.InsertRunLogAsync(new RunLog
             {
                 RunId = runId,
                 BusinessDate = businessDate,
                 Stage = "STAGE_0_5",
-                Message = $"Yahoo stock data loaded into Table_1_All_Stocks: {stocks.Count}",
+                Message = "Stock data verified in Table_1_All_Stocks",
                 Status = "SUCCESS"
             });
+
+            Console.WriteLine("✅ STAGE 0.5 COMPLETE");
         }
 
         // =============================================

@@ -282,6 +282,83 @@ namespace NEO.Core.Services
               </tbody>
             </table>";
         }
+        public async Task SendStockFetchSummaryAsync(
+            string runId,
+            DateTime businessDate,
+            List<Stock> stocks,
+            string status,
+            string message)
+        {
+            Console.WriteLine("\n🔵 STOCK FETCH EMAIL ALERT...");
+            Console.WriteLine($"   → Status: {status}");
+            Console.WriteLine($"   → Stocks: {stocks.Count}");
+
+            var subject = $"[NEO] Stock Fetch {status} - {businessDate:yyyy-MM-dd}";
+
+            var sectorSummary = stocks
+                .GroupBy(s => s.SectorName)
+                .OrderBy(g => g.Key)
+                .Select(g => $"<tr><td>{g.Key}</td><td>{g.Count()}</td></tr>")
+                .ToList();
+
+            var sectorRows = sectorSummary.Count > 0
+                ? string.Join("", sectorSummary)
+                : "<tr><td colspan='2'>No stocks inserted</td></tr>";
+
+            var htmlBody = $@"
+                <html>
+                <body style='font-family: Arial, sans-serif;'>
+                    <h2>ProjectNEO Stock Fetch Summary</h2>
+
+                    <p><b>Status:</b> {status}</p>
+                    <p><b>Business Date:</b> {businessDate:yyyy-MM-dd}</p>
+                    <p><b>Run ID:</b> {runId}</p>
+                    <p><b>Total Stocks:</b> {stocks.Count}</p>
+                    <p><b>Message:</b> {message}</p>
+
+                    <h3>Sector Summary</h3>
+                    <table border='1' cellpadding='6' cellspacing='0'>
+                        <tr>
+                            <th>Sector</th>
+                            <th>Stock Count</th>
+                        </tr>
+                        {sectorRows}
+                    </table>
+
+                    <br/>
+                    <p>This is an automated ProjectNEO stock-fetch notification.</p>
+                </body>
+                </html>";
+
+            var email = new MimeKit.MimeMessage();
+            email.From.Add(MimeKit.MailboxAddress.Parse(_fromEmail));
+            email.To.Add(MimeKit.MailboxAddress.Parse(_toEmail));
+            email.Subject = subject;
+
+            email.Body = new MimeKit.BodyBuilder
+            {
+                HtmlBody = htmlBody,
+                TextBody =
+                    $"ProjectNEO Stock Fetch {status}\n" +
+                    $"Business Date: {businessDate:yyyy-MM-dd}\n" +
+                    $"Run ID: {runId}\n" +
+                    $"Total Stocks: {stocks.Count}\n" +
+                    $"Message: {message}"
+            }.ToMessageBody();
+
+            using var smtp = new MailKit.Net.Smtp.SmtpClient();
+
+            await smtp.ConnectAsync(
+                _smtpHost,
+                _smtpPort,
+                MailKit.Security.SecureSocketOptions.StartTls);
+
+            await smtp.AuthenticateAsync(_fromEmail, _fromPassword);
+            await smtp.SendAsync(email);
+            await smtp.DisconnectAsync(true);
+
+            Console.WriteLine("   ✅ Stock fetch summary email sent successfully!");
+        }
     }
 }
 
