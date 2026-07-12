@@ -25,8 +25,9 @@ namespace NEO.Core.Data
         {
             try
             {
-                using var conn = new SqlConnection(_connectionString);
-                await conn.OpenAsync();
+                //using var conn = new SqlConnection(_connectionString);
+                //await conn.OpenAsync();
+                using var conn = await OpenConnectionWithRetryAsync();
                 return true;
             }
             catch (Exception ex)
@@ -874,6 +875,37 @@ namespace NEO.Core.Data
             }
 
             return result;
+        }
+
+        private async Task<SqlConnection> OpenConnectionWithRetryAsync(
+            int maxAttempts = 5,
+             int delaySeconds = 5)
+        {
+            Exception? lastException = null;
+
+            for (int attempt = 1; attempt <= maxAttempts; attempt++)
+            {
+                try
+                {
+                    var conn = new SqlConnection(_connectionString);
+                    await conn.OpenAsync();
+                    return conn;
+                }
+                catch (Exception ex)
+                {
+                    lastException = ex;
+
+                    Console.WriteLine(
+                        $"   ⚠️ SQL connection attempt {attempt}/{maxAttempts} failed: {ex.Message}");
+
+                    if (attempt < maxAttempts)
+                        await Task.Delay(TimeSpan.FromSeconds(delaySeconds * attempt));
+                }
+            }
+
+            throw new Exception(
+                $"Database connection failed after {maxAttempts} attempts.",
+                lastException);
         }
 
 
