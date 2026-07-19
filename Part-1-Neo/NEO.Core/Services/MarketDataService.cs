@@ -38,33 +38,50 @@ namespace NEO.Core.Services
         // =============================================
         public async Task<List<Stock>> GetStocksFromYahooAsync()
         {
-            var allStocks = new List<Stock>();
-            var symbols = GetNseUniverse();
+            Console.WriteLine("   → Loading NSE EQ universe from official NSE CSV...");
 
-            const int batchSize = 8;
+            var nseSymbols = await LoadNseEqUniverseAsync(maxCount: 500);
 
-            for (int i = 0; i < symbols.Count; i += batchSize)
+            if (nseSymbols.Count == 0)
             {
-                var batch = symbols.Skip(i).Take(batchSize).ToList();
+                Console.WriteLine("   ⚠️ NSE universe returned 0 symbols — using fallback seed");
+                return GetFallbackSeedStocks()
+                    .Where(s => !IsForbiddenSector(s.SectorName))
+                    .ToList();
+            }
 
-                Console.WriteLine($"   → Yahoo batch: {string.Join(", ", batch)}");
+            Console.WriteLine($"   ✅ NSE EQ universe loaded: {nseSymbols.Count} symbols");
 
-                var batchStocks = await FetchBatchWithRetryAsync(batch);
+            var yahooSymbols = nseSymbols
+                .Select(s => $"{s.Symbol}.NS")
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var allStocks = new List<Stock>();
+
+            const int batchSize = 50;
+
+            for (int i = 0; i < yahooSymbols.Count; i += batchSize)
+            {
+                var batch = yahooSymbols.Skip(i).Take(batchSize).ToList();
+
+                Console.WriteLine($"   → Yahoo batch {i / batchSize + 1}: {batch.Count} symbols");
+
+                var batchStocks = await FetchNseBatchWithRetryAsync(batch, nseSymbols);
                 allStocks.AddRange(batchStocks);
 
-                await Task.Delay(1500);
+                await Task.Delay(1000);
             }
 
             allStocks = allStocks
                 .Where(s => !string.IsNullOrWhiteSpace(s.Symbol))
                 .GroupBy(s => s.Symbol)
                 .Select(g => g.First())
-                .Where(s => !IsForbiddenSector(s.SectorName))
                 .ToList();
 
             if (allStocks.Count == 0)
             {
-                Console.WriteLine("   ⚠️ Yahoo failed completely — using expanded fallback stock seed");
+                Console.WriteLine("   ⚠️ Yahoo returned 0 usable stocks — using fallback seed");
                 allStocks = GetFallbackSeedStocks()
                     .Where(s => !IsForbiddenSector(s.SectorName))
                     .ToList();
@@ -73,6 +90,103 @@ namespace NEO.Core.Services
             Console.WriteLine($"   ✅ MarketDataService returned {allStocks.Count} stocks");
 
             return allStocks;
+        }
+
+        private async Task<List<NseSecurity>> LoadNseEqUniverseAsync(int maxCount)
+        {
+            var result = new List<NseSecurity>();
+
+            try
+            {
+                var url = "https://nsearchives.nseindia.com/content/equities/sec_list.csv";
+
+                using var request = new HttpRequestMessage(HttpMethod.Get, url);
+
+                request.Headers.UserAgent.ParseAdd(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+                    "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36");
+
+                request.Headers.Referrer = new Uri("https://www.nseindia.com/");
+                request.Headers.Accept.ParseAdd("text/csv,*/*");
+
+                using var response = await _httpClient.SendAsync(request);
+                response.EnsureSuccessStatusCode();
+
+                var csv = await response.Content.ReadAsStringAsync();
+
+                var lines = csv
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(x => x.Trim())
+                    .ToList();
+
+                if (lines.Count <= 1)
+                    return result;
+
+                foreach (var line in lines.Skip(1))
+                {
+                    var cols = SplitCsvLine(line);
+
+                    if (cols.Count < 3)
+                        continue;
+
+                    var symbol = cols[0].Trim();
+                    var series = cols[1].Trim();
+                    var name = cols[2].Trim();
+
+                    if (!series.Equals("EQ", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    if (string.IsNullOrWhiteSpace(symbol) || string.IsNullOrWhiteSpace(name))
+                        continue;
+
+                    result.Add(new NseSecurity
+                    {
+                        Symbol = symbol,
+                        Series = series,
+                        SecurityName = name
+                    });
+
+                    if (result.Count >= maxCount)
+                        break;
+                }
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"   ⚠️ NSE universe load failed: {ex.Message}");
+                return result;
+            }
+        }
+
+        private List<string> SplitCsvLine(string line)
+        {
+            var result = new List<string>();
+            var current = "";
+            bool inQuotes = false;
+
+            foreach (char c in line)
+            {
+                if (c == '"')
+                {
+                    inQuotes = !inQuotes;
+                    continue;
+                }
+
+                if (c == ',' && !inQuotes)
+                {
+                    result.Add(current);
+                    current = "";
+                }
+                else
+                {
+                    current += c;
+                }
+            }
+
+            result.Add(current);
+
+            return result;
         }
 
         // =============================================
@@ -264,6 +378,179 @@ namespace NEO.Core.Services
             }
 
             return result;
+        }
+
+        private async Task<List<Stock>> FetchNseBatchWithRetryAsync(
+    List<string> yahooSymbols,
+    List<NseSecurity> masterList)
+        {
+            var result = new List<Stock>();
+
+            for (int attempt = 1; attempt <= 3; attempt++)
+            {
+                try
+                {
+                    var symbolCsv = string.Join(",", yahooSymbols);
+                    var url = $"https://query1.finance.yahoo.com/v7/finance/quote?symbols={symbolCsv}";
+
+                    using var response = await _httpClient.GetAsync(url);
+
+                    if ((int)response.StatusCode == 429)
+                    {
+                        Console.WriteLine($"   ⚠️ Yahoo 429 on batch — attempt {attempt}/3");
+                        await Task.Delay(3000 * attempt);
+                        continue;
+                    }
+
+                    response.EnsureSuccessStatusCode();
+
+                    var json = await response.Content.ReadAsStringAsync();
+                    dynamic? data = JsonConvert.DeserializeObject(json);
+
+                    var items = data?.quoteResponse?.result;
+
+                    if (items == null)
+                        return result;
+
+                    foreach (var item in items)
+                    {
+                        string rawSymbol = item.symbol?.ToString() ?? "";
+
+                        if (string.IsNullOrWhiteSpace(rawSymbol))
+                            continue;
+
+                        var normalized = NormalizeSymbol(rawSymbol);
+
+                        var master = masterList.FirstOrDefault(x =>
+                            x.Symbol.Equals(normalized, StringComparison.OrdinalIgnoreCase));
+
+                        var stockName = item.shortName?.ToString()
+                                        ?? master?.SecurityName
+                                        ?? normalized;
+
+                        var sector = MapSectorFromText(normalized, stockName);
+
+                        var currentPrice = ToDecimal(item.regularMarketPrice);
+                        var previousClose = ToDecimal(item.regularMarketPreviousClose);
+                        var pct1d = ToDecimal(item.regularMarketChangePercent);
+
+                        if (previousClose <= 0 && currentPrice > 0)
+                            previousClose = currentPrice;
+
+                        var stock = new Stock
+                        {
+                            Symbol = normalized,
+                            StockName = stockName,
+                            SectorName = sector,
+                            Price = currentPrice,
+                            PreviousClose = previousClose,
+                            Pct1d = pct1d,
+                            Pct5d = 0m,
+                            Pct20d = 0m,
+                            MarketCap = ToDecimal(item.marketCap),
+                            PERatio = ToDecimal(item.trailingPE),
+                            AvgTurnover30d = ToDecimal(item.regularMarketVolume)
+                        };
+
+                        result.Add(stock);
+                    }
+
+                    return result;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"   ⚠️ Yahoo batch failed attempt {attempt}/3: {ex.Message}");
+
+                    if (attempt < 3)
+                        await Task.Delay(3000 * attempt);
+                }
+            }
+
+            return result;
+        }
+
+        private string MapSectorFromText(string symbol, string stockName)
+        {
+            var text = $"{symbol} {stockName}".ToUpperInvariant();
+
+            if (text.Contains("BANK") ||
+                text.Contains("FINANCE") ||
+                text.Contains("FINANCIAL") ||
+                text.Contains("INSURANCE") ||
+                text.Contains("SECURITIES") ||
+                text.Contains("CAPITAL") ||
+                text.Contains("INVESTMENT") ||
+                text.Contains("AMC"))
+                return "Finance";
+
+            if (text.Contains("TECH") ||
+                text.Contains("SOFT") ||
+                text.Contains("INFOTECH") ||
+                text.Contains("COMPUTER") ||
+                text.Contains("DIGITAL") ||
+                text.Contains("SYSTEMS"))
+                return "Technology";
+
+            if (text.Contains("PHARMA") ||
+                text.Contains("DRUG") ||
+                text.Contains("LAB") ||
+                text.Contains("HEALTH") ||
+                text.Contains("HOSPITAL") ||
+                text.Contains("BIO"))
+                return "Pharma";
+
+            if (text.Contains("POWER") ||
+                text.Contains("ENERGY") ||
+                text.Contains("GREEN") ||
+                text.Contains("ELECTRIC") ||
+                text.Contains("GRID"))
+                return "Utilities";
+
+            if (text.Contains("STEEL") ||
+                text.Contains("METAL") ||
+                text.Contains("ALUMIN") ||
+                text.Contains("CEMENT") ||
+                text.Contains("MINERAL") ||
+                text.Contains("CHEMICAL"))
+                return "Materials";
+
+            if (text.Contains("AUTO") ||
+                text.Contains("MOTOR") ||
+                text.Contains("TYRE") ||
+                text.Contains("SUZUKI") ||
+                text.Contains("TRACTOR") ||
+                text.Contains("VEHICLE"))
+                return "Consumer Discretionary";
+
+            if (text.Contains("FOOD") ||
+                text.Contains("CONSUMER") ||
+                text.Contains("FMCG") ||
+                text.Contains("BEVERAGE") ||
+                text.Contains("RETAIL") ||
+                text.Contains("TEXTILE"))
+                return "Consumer Staples";
+
+            if (text.Contains("OIL") ||
+                text.Contains("GAS") ||
+                text.Contains("PETRO") ||
+                text.Contains("REFIN") ||
+                text.Contains("COAL"))
+                return "Energy";
+
+            if (text.Contains("TELECOM") ||
+                text.Contains("COMMUNICATION") ||
+                text.Contains("MEDIA") ||
+                text.Contains("INTERNET"))
+                return "Communication Services";
+
+            if (text.Contains("ENGINEERING") ||
+                text.Contains("INDUSTR") ||
+                text.Contains("INFRA") ||
+                text.Contains("CONSTRUCTION") ||
+                text.Contains("LOGISTICS"))
+                return "Industrials";
+
+            return "Unknown";
         }
 
         // =============================================
@@ -504,6 +791,13 @@ namespace NEO.Core.Services
             DateTime businessDate = DateTime.UtcNow.Date;
 
             await _db.InsertAllStocksAsync(runId, businessDate, stocks);
+        }
+
+        private class NseSecurity
+        {
+            public string Symbol { get; set; } = "";
+            public string Series { get; set; } = "";
+            public string SecurityName { get; set; } = "";
         }
     }
 }

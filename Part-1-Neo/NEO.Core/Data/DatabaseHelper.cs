@@ -185,11 +185,11 @@ namespace NEO.Core.Data
             {
                 var sql = @"INSERT INTO Table_1_All_Stocks
                            (run_id, business_date, symbol, stock_name,
-                            sector_name, previous_close, pct_1d, pct_5d,
+                            sector_name, current_price, previous_close, pct_1d, pct_5d,
                             pct_20d, marketcap, pe_ratio, avg_turnover_30d)
                            VALUES
                            (@RunId, @BusinessDate, @Symbol, @StockName,
-                            @SectorName, @PreviousClose, @Pct1d, @Pct5d,
+                            @SectorName, @CurrentPrice, @PreviousClose, @Pct1d, @Pct5d,
                             @Pct20d, @MarketCap, @PeRatio, @AvgTurnover30d)";
 
                 using var cmd = new SqlCommand(sql, conn);
@@ -198,6 +198,7 @@ namespace NEO.Core.Data
                 cmd.Parameters.AddWithValue("@Symbol", stock.Symbol);
                 cmd.Parameters.AddWithValue("@StockName", stock.StockName);
                 cmd.Parameters.AddWithValue("@SectorName", stock.SectorName);
+                cmd.Parameters.AddWithValue("@CurrentPrice", stock.Price);
                 cmd.Parameters.AddWithValue("@PreviousClose", stock.PreviousClose);
                 cmd.Parameters.AddWithValue("@Pct1d", stock.Pct1d);
                 cmd.Parameters.AddWithValue("@Pct5d", stock.Pct5d);
