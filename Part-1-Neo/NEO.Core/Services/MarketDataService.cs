@@ -8,6 +8,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Threading.Tasks;
+using System.IO;
 
 namespace NEO.Core.Services
 {
@@ -81,7 +82,8 @@ namespace NEO.Core.Services
 
             if (allStocks.Count == 0)
             {
-                Console.WriteLine("   ⚠️ Yahoo returned 0 usable stocks — using fallback seed");
+                Console.WriteLine("   ⚠️ Yahoo/NSE fetch failed. Falling back to seed data.");
+                Console.WriteLine("   ⚠️ This fallback is not acceptable for 500 stock production fetch");
                 allStocks = GetFallbackSeedStocks()
                     .Where(s => !IsForbiddenSector(s.SectorName))
                     .ToList();
@@ -94,10 +96,31 @@ namespace NEO.Core.Services
 
         private async Task<List<NseSecurity>> LoadNseEqUniverseAsync(int maxCount)
         {
-            var result = new List<NseSecurity>();
-
             try
             {
+                // 1. First try local CSV included in Azure Function package
+                var localPath = Path.Combine(AppContext.BaseDirectory, "nse_eq_symbols.csv");
+
+                if (File.Exists(localPath))
+                {
+                    Console.WriteLine($"   ✅ Local NSE CSV found: {localPath}");
+
+                    var localCsv = await File.ReadAllTextAsync(localPath);
+                    var localResult = ParseNseCsv(localCsv, maxCount);
+
+                    Console.WriteLine($"   ✅ Local NSE EQ universe loaded: {localResult.Count} symbols");
+
+                    if (localResult.Count > 0)
+                        return localResult;
+                }
+                else
+                {
+                    Console.WriteLine($"   ⚠️ Local NSE CSV not found at: {localPath}");
+                }
+
+                // 2. If local file is missing, fallback to NSE online CSV
+                Console.WriteLine("   → Trying NSE online CSV...");
+
                 var url = "https://nsearchives.nseindia.com/content/equities/sec_list.csv";
 
                 using var request = new HttpRequestMessage(HttpMethod.Get, url);
@@ -110,53 +133,67 @@ namespace NEO.Core.Services
                 request.Headers.Accept.ParseAdd("text/csv,*/*");
 
                 using var response = await _httpClient.SendAsync(request);
+
+                Console.WriteLine($"   → NSE online CSV status: {(int)response.StatusCode} {response.StatusCode}");
+
                 response.EnsureSuccessStatusCode();
 
                 var csv = await response.Content.ReadAsStringAsync();
 
-                var lines = csv
-                    .Split('\n', StringSplitOptions.RemoveEmptyEntries)
-                    .Select(x => x.Trim())
-                    .ToList();
+                var onlineResult = ParseNseCsv(csv, maxCount);
 
-                if (lines.Count <= 1)
-                    return result;
+                Console.WriteLine($"   ✅ Online NSE EQ universe loaded: {onlineResult.Count} symbols");
 
-                foreach (var line in lines.Skip(1))
-                {
-                    var cols = SplitCsvLine(line);
-
-                    if (cols.Count < 3)
-                        continue;
-
-                    var symbol = cols[0].Trim();
-                    var series = cols[1].Trim();
-                    var name = cols[2].Trim();
-
-                    if (!series.Equals("EQ", StringComparison.OrdinalIgnoreCase))
-                        continue;
-
-                    if (string.IsNullOrWhiteSpace(symbol) || string.IsNullOrWhiteSpace(name))
-                        continue;
-
-                    result.Add(new NseSecurity
-                    {
-                        Symbol = symbol,
-                        Series = series,
-                        SecurityName = name
-                    });
-
-                    if (result.Count >= maxCount)
-                        break;
-                }
-
-                return result;
+                return onlineResult;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"   ⚠️ NSE universe load failed: {ex.Message}");
-                return result;
+                Console.WriteLine($"   ❌ NSE universe load failed: {ex.Message}");
+                return new List<NseSecurity>();
             }
+        }
+
+        private List<NseSecurity> ParseNseCsv(string csv, int maxCount)
+        {
+            var result = new List<NseSecurity>();
+
+            var lines = csv
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                .Select(x => x.Trim())
+                .ToList();
+
+            if (lines.Count <= 1)
+                return result;
+
+            foreach (var line in lines.Skip(1))
+            {
+                var cols = SplitCsvLine(line);
+
+                if (cols.Count < 3)
+                    continue;
+
+                var symbol = cols[0].Trim();
+                var series = cols[1].Trim();
+                var name = cols[2].Trim();
+
+                if (!series.Equals("EQ", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                if (string.IsNullOrWhiteSpace(symbol) || string.IsNullOrWhiteSpace(name))
+                    continue;
+
+                result.Add(new NseSecurity
+                {
+                    Symbol = symbol,
+                    Series = series,
+                    SecurityName = name
+                });
+
+                if (result.Count >= maxCount)
+                    break;
+            }
+
+            return result;
         }
 
         private List<string> SplitCsvLine(string line)

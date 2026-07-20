@@ -44,8 +44,12 @@ namespace NEO.Functions
 
                 var stocks = await _marketData.GetStocksFromYahooAsync();
 
-                if (stocks.Count == 0)
-                    throw new Exception("MarketDataService returned zero stocks.");
+                if (stocks.Count < 100)
+                {
+                    throw new Exception(
+                        $"MarketDataService returned only {stocks.Count} stocks. " +
+                        "Expected at least 100. This means NSE/Yahoo fetch failed and fallback data was used.");
+                }
 
                 await _db.InsertAllStocksAsync(runId, businessDate, stocks);
 
@@ -63,7 +67,7 @@ namespace NEO.Functions
                     businessDate,
                     stocks,
                     "SUCCESS",
-                    $"Stock fetch completed successfully. Stocks inserted: {stocks.Count}");
+                    $"Stock fetch completed successfully. Stocks inserted: {stocks.Count}. If count is below 100, external NSE/Yahoo fetch likely failed");
 
                 _logger.LogInformation("ProjectNEO DailyStockFetchFunction completed successfully. Stocks inserted: {count}", stocks.Count);
             }

@@ -32,6 +32,9 @@
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 			<CopyToPublishDirectory>Never</CopyToPublishDirectory>
 		</None>
+		<None Update="nse_eq_symbols.csv">
+    			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+  		</None>
 	</ItemGroup>
 
 </Project>

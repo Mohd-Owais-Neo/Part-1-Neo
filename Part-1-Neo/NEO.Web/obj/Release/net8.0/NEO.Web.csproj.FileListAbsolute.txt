@@ -2,6 +2,7 @@ C:\Projects\Part-1-Neo\Part-1-Neo\NEO.Web\bin\Release\net8.0\Neo.Functions.deps.
 C:\Projects\Part-1-Neo\Part-1-Neo\NEO.Web\bin\Release\net8.0\Neo.Functions.runtimeconfig.json
 C:\Projects\Part-1-Neo\Part-1-Neo\NEO.Web\bin\Release\net8.0\host.json
 C:\Projects\Part-1-Neo\Part-1-Neo\NEO.Web\bin\Release\net8.0\local.settings.json
+C:\Projects\Part-1-Neo\Part-1-Neo\NEO.Web\bin\Release\net8.0\nse_eq_symbols.csv
 C:\Projects\Part-1-Neo\Part-1-Neo\NEO.Web\bin\Release\net8.0\Neo.Functions.exe
 C:\Projects\Part-1-Neo\Part-1-Neo\NEO.Web\bin\Release\net8.0\functions.metadata
 C:\Projects\Part-1-Neo\Part-1-Neo\NEO.Web\bin\Release\net8.0\worker.config.json
