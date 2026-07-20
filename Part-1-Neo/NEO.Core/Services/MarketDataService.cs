@@ -514,24 +514,289 @@ namespace NEO.Core.Services
 
         private string MapSectorFromText(string symbol, string stockName)
         {
-            var text = $"{symbol} {stockName}".ToUpperInvariant();
+            var cleanSymbol = symbol
+                .Replace(".NS", "", StringComparison.OrdinalIgnoreCase)
+                .Trim()
+                .ToUpperInvariant();
 
+            var text = $"{cleanSymbol} {stockName}".ToUpperInvariant();
+
+            // -------------------------------------------------
+            // 1. Exact forbidden stock symbol mapping
+            // These are excluded by returning Finance/Insurance.
+            // IsForbiddenSector() will filter these out.
+            // -------------------------------------------------
+            var forbiddenSymbols = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        // Banks
+        "HDFCBANK", "ICICIBANK", "SBIN", "AXISBANK", "KOTAKBANK",
+        "INDUSINDBK", "BANKBARODA", "PNB", "CANBK", "UNIONBANK",
+        "IDFCFIRSTB", "FEDERALBNK", "AUBANK", "BANDHANBNK",
+        "RBLBANK", "YESBANK", "INDIANB", "IOB", "CENTRALBK",
+        "UCOBANK", "MAHABANK", "PSB", "KARURVYSYA", "SOUTHBANK",
+        "DCBBANK", "CSBBANK", "KTKBANK", "J&KBANK",
+
+        // Finance / NBFC / securities / exchanges / brokers
+        "BAJFINANCE", "BAJAJFINSV", "JIOFIN", "PFC", "RECLTD",
+        "SHRIRAMFIN", "MUTHOOTFIN", "CHOLAFIN", "LICHSGFIN",
+        "MANAPPURAM", "IIFL", "IIFLFIN", "360ONE", "ANGELONE",
+        "CDSL", "CAMS", "BSE", "MCX", "NAM-INDIA", "NUVAMA",
+        "MOTILALOFS", "SBICARD", "PAYTM", "FINOPB", "PAISALO",
+        "PIRAMALFIN",
+
+        // Insurance
+        "HDFCLIFE", "SBILIFE", "ICICIPRULI", "ICICIGI",
+        "LICI", "NIACL", "GICRE", "STARHEALTH", "POLICYBZR"
+    };
+
+            if (forbiddenSymbols.Contains(cleanSymbol))
+                return "Finance";
+
+            // -------------------------------------------------
+            // 2. Exact known symbol-to-sector mapping
+            // This fixes high-volume Indian symbols that
+            // keyword mapping cannot classify correctly.
+            // -------------------------------------------------
+            var knownSectorMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                // Technology
+                ["TCS"] = "Technology",
+                ["INFY"] = "Technology",
+                ["WIPRO"] = "Technology",
+                ["HCLTECH"] = "Technology",
+                ["TECHM"] = "Technology",
+                ["LTIM"] = "Technology",
+                ["MPHASIS"] = "Technology",
+                ["PERSISTENT"] = "Technology",
+                ["COFORGE"] = "Technology",
+                ["KPITTECH"] = "Technology",
+                ["OFSS"] = "Technology",
+                ["ECLERX"] = "Technology",
+                ["NEWGEN"] = "Technology",
+                ["TATAELXSI"] = "Technology",
+                ["SONATSOFTW"] = "Technology",
+                ["CYIENT"] = "Technology",
+                ["BIRLASOFT"] = "Technology",
+                ["ZENSARTECH"] = "Technology",
+                ["LTTS"] = "Technology",
+                ["INTELLECT"] = "Technology",
+                ["HAPPSTMNDS"] = "Technology",
+                ["HFCL"] = "Technology",
+
+                // Communication Services / Digital / Telecom
+                ["BHARTIARTL"] = "Communication Services",
+                ["IDEA"] = "Communication Services",
+                ["ZOMATO"] = "Communication Services",
+                ["ETERNAL"] = "Communication Services",
+                ["SWIGGY"] = "Communication Services",
+                ["NAUKRI"] = "Communication Services",
+                ["INDIAMART"] = "Communication Services",
+                ["JUSTDIAL"] = "Communication Services",
+                ["DELHIVERY"] = "Communication Services",
+                ["IRCTC"] = "Communication Services",
+                ["ZEEL"] = "Communication Services",
+                ["SUNTV"] = "Communication Services",
+                ["PVRINOX"] = "Communication Services",
+
+                // Energy
+                ["RELIANCE"] = "Energy",
+                ["ONGC"] = "Energy",
+                ["IOC"] = "Energy",
+                ["BPCL"] = "Energy",
+                ["HINDPETRO"] = "Energy",
+                ["GAIL"] = "Energy",
+                ["OIL"] = "Energy",
+                ["PETRONET"] = "Energy",
+                ["MRPL"] = "Energy",
+                ["AEGISLOG"] = "Energy",
+                ["MGL"] = "Energy",
+                ["IGL"] = "Energy",
+                ["ATGL"] = "Energy",
+                ["CASTROLIND"] = "Energy",
+                ["CHENNPETRO"] = "Energy",
+
+                // Utilities / Power
+                ["NTPC"] = "Utilities",
+                ["POWERGRID"] = "Utilities",
+                ["TATAPOWER"] = "Utilities",
+                ["ADANIGREEN"] = "Utilities",
+                ["ADANIPOWER"] = "Utilities",
+                ["ADANIENSOL"] = "Utilities",
+                ["TORNTPOWER"] = "Utilities",
+                ["CESC"] = "Utilities",
+                ["NHPC"] = "Utilities",
+                ["SJVN"] = "Utilities",
+                ["SUZLON"] = "Utilities",
+                ["JSWENERGY"] = "Utilities",
+                ["INOXWIND"] = "Utilities",
+
+                // Consumer Discretionary / Auto / Retail / Lifestyle
+                ["TITAN"] = "Consumer Discretionary",
+                ["KALYANKJIL"] = "Consumer Discretionary",
+                ["PCJEWELLER"] = "Consumer Discretionary",
+                ["MARUTI"] = "Consumer Discretionary",
+                ["TATAMOTORS"] = "Consumer Discretionary",
+                ["TMPV"] = "Consumer Discretionary",
+                ["TMCV"] = "Consumer Discretionary",
+                ["M&M"] = "Consumer Discretionary",
+                ["BAJAJ-AUTO"] = "Consumer Discretionary",
+                ["HEROMOTOCO"] = "Consumer Discretionary",
+                ["EICHERMOT"] = "Consumer Discretionary",
+                ["TVSMOTOR"] = "Consumer Discretionary",
+                ["ASHOKLEY"] = "Consumer Discretionary",
+                ["SONACOMS"] = "Consumer Discretionary",
+                ["BOSCHLTD"] = "Consumer Discretionary",
+                ["MRF"] = "Consumer Discretionary",
+                ["CEATLTD"] = "Consumer Discretionary",
+                ["APOLLOTYRE"] = "Consumer Discretionary",
+                ["RELAXO"] = "Consumer Discretionary",
+                ["BATAINDIA"] = "Consumer Discretionary",
+                ["CAMPUS"] = "Consumer Discretionary",
+                ["PAGEIND"] = "Consumer Discretionary",
+                ["TRENT"] = "Consumer Discretionary",
+                ["DMART"] = "Consumer Discretionary",
+                ["NYKAA"] = "Consumer Discretionary",
+                ["LENSKART"] = "Consumer Discretionary",
+                ["VOLTAS"] = "Consumer Discretionary",
+                ["BLUESTARCO"] = "Consumer Discretionary",
+                ["DIXON"] = "Consumer Discretionary",
+                ["AMBER"] = "Consumer Discretionary",
+                ["ATHERENERG"] = "Consumer Discretionary",
+
+                // Consumer Staples
+                ["ITC"] = "Consumer Staples",
+                ["HINDUNILVR"] = "Consumer Staples",
+                ["NESTLEIND"] = "Consumer Staples",
+                ["BRITANNIA"] = "Consumer Staples",
+                ["DABUR"] = "Consumer Staples",
+                ["MARICO"] = "Consumer Staples",
+                ["GODREJCP"] = "Consumer Staples",
+                ["TATACONSUM"] = "Consumer Staples",
+                ["VBL"] = "Consumer Staples",
+                ["COLPAL"] = "Consumer Staples",
+                ["PATANJALI"] = "Consumer Staples",
+                ["BIKAJI"] = "Consumer Staples",
+                ["BALRAMCHIN"] = "Consumer Staples",
+                ["RADICO"] = "Consumer Staples",
+
+                // Pharma / Healthcare
+                ["SUNPHARMA"] = "Pharma",
+                ["DRREDDY"] = "Pharma",
+                ["CIPLA"] = "Pharma",
+                ["DIVISLAB"] = "Pharma",
+                ["TORNTPHARM"] = "Pharma",
+                ["LUPIN"] = "Pharma",
+                ["AUROPHARMA"] = "Pharma",
+                ["BIOCON"] = "Pharma",
+                ["ALKEM"] = "Pharma",
+                ["GLENMARK"] = "Pharma",
+                ["ZYDUSLIFE"] = "Pharma",
+                ["IPCALAB"] = "Pharma",
+                ["LAURUSLABS"] = "Pharma",
+                ["ABBOTINDIA"] = "Pharma",
+                ["APOLLOHOSP"] = "Health Care",
+                ["MAXHEALTH"] = "Health Care",
+                ["FORTIS"] = "Health Care",
+                ["MEDANTA"] = "Health Care",
+                ["LALPATHLAB"] = "Health Care",
+                ["METROPOLIS"] = "Health Care",
+
+                // Materials / Metals / Cement / Chemicals
+                ["JSWSTEEL"] = "Materials",
+                ["TATASTEEL"] = "Materials",
+                ["HINDALCO"] = "Materials",
+                ["VEDL"] = "Materials",
+                ["SAIL"] = "Materials",
+                ["NATIONALUM"] = "Materials",
+                ["NMDC"] = "Materials",
+                ["COALINDIA"] = "Materials",
+                ["APLAPOLLO"] = "Materials",
+                ["JINDALSTEL"] = "Materials",
+                ["ULTRACEMCO"] = "Materials",
+                ["GRASIM"] = "Materials",
+                ["SHREECEM"] = "Materials",
+                ["AMBUJACEM"] = "Materials",
+                ["ACC"] = "Materials",
+                ["DALBHARAT"] = "Materials",
+                ["PIDILITIND"] = "Materials",
+                ["SRF"] = "Materials",
+                ["DEEPAKNTR"] = "Materials",
+                ["TATACHEM"] = "Materials",
+                ["NAVINFLUOR"] = "Materials",
+                ["PIIND"] = "Materials",
+
+                // Industrials / Capital Goods / Construction / Defence
+                ["LT"] = "Industrials",
+                ["BHEL"] = "Industrials",
+                ["SIEMENS"] = "Industrials",
+                ["ABB"] = "Industrials",
+                ["HAL"] = "Industrials",
+                ["BEL"] = "Industrials",
+                ["BHARATFORG"] = "Industrials",
+                ["CUMMINSIND"] = "Industrials",
+                ["THERMAX"] = "Industrials",
+                ["POLYCAB"] = "Industrials",
+                ["HAVELLS"] = "Industrials",
+                ["KEI"] = "Industrials",
+                ["KAYNES"] = "Industrials",
+                ["AFCONS"] = "Industrials",
+                ["LLOYDSENGG"] = "Industrials",
+                ["CGPOWER"] = "Industrials",
+                ["SCHNEIDER"] = "Industrials",
+                ["TIMKEN"] = "Industrials",
+                ["SKFINDIA"] = "Industrials",
+                ["SUPREMEIND"] = "Industrials",
+                ["ASTRAL"] = "Industrials",
+                ["FINPIPE"] = "Industrials",
+
+                // Real Estate
+                ["DLF"] = "Real Estate",
+                ["LODHA"] = "Real Estate",
+                ["GODREJPROP"] = "Real Estate",
+                ["OBEROIRLTY"] = "Real Estate",
+                ["PHOENIXLTD"] = "Real Estate",
+                ["ANANTRAJ"] = "Real Estate",
+
+                // ETFs / Bees
+                ["LIQUIDBEES"] = "ETF",
+                ["GOLDBEES"] = "ETF",
+                ["SILVERBEES"] = "ETF",
+                ["NIFTYBEES"] = "ETF",
+                ["BANKBEES"] = "Finance"
+            };
+
+            if (knownSectorMap.TryGetValue(cleanSymbol, out var mappedSector))
+                return mappedSector;
+
+            // -------------------------------------------------
+            // 3. Keyword forbidden filter
+            // If symbol/name looks like bank/finance/insurance,
+            // return Finance so The IsForbiddenSector() filter removes it.
+            // -------------------------------------------------
             if (text.Contains("BANK") ||
+                text.Contains("BNK") ||
                 text.Contains("FINANCE") ||
                 text.Contains("FINANCIAL") ||
                 text.Contains("INSURANCE") ||
                 text.Contains("SECURITIES") ||
                 text.Contains("CAPITAL") ||
                 text.Contains("INVESTMENT") ||
-                text.Contains("AMC"))
+                text.Contains("AMC") ||
+                text.Contains("BROKING") ||
+                text.Contains("EXCHANGE") ||
+                text.Contains("LIFE"))
                 return "Finance";
 
+            // -------------------------------------------------
+            // 4. Keyword-based fallback mapping
+            // -------------------------------------------------
             if (text.Contains("TECH") ||
                 text.Contains("SOFT") ||
                 text.Contains("INFOTECH") ||
                 text.Contains("COMPUTER") ||
                 text.Contains("DIGITAL") ||
-                text.Contains("SYSTEMS"))
+                text.Contains("SYSTEMS") ||
+                text.Contains("DATA"))
                 return "Technology";
 
             if (text.Contains("PHARMA") ||
@@ -539,14 +804,17 @@ namespace NEO.Core.Services
                 text.Contains("LAB") ||
                 text.Contains("HEALTH") ||
                 text.Contains("HOSPITAL") ||
-                text.Contains("BIO"))
+                text.Contains("BIO") ||
+                text.Contains("MEDICAL"))
                 return "Pharma";
 
             if (text.Contains("POWER") ||
                 text.Contains("ENERGY") ||
                 text.Contains("GREEN") ||
                 text.Contains("ELECTRIC") ||
-                text.Contains("GRID"))
+                text.Contains("GRID") ||
+                text.Contains("WIND") ||
+                text.Contains("SOLAR"))
                 return "Utilities";
 
             if (text.Contains("STEEL") ||
@@ -554,7 +822,9 @@ namespace NEO.Core.Services
                 text.Contains("ALUMIN") ||
                 text.Contains("CEMENT") ||
                 text.Contains("MINERAL") ||
-                text.Contains("CHEMICAL"))
+                text.Contains("CHEMICAL") ||
+                text.Contains("ALLOY") ||
+                text.Contains("COPPER"))
                 return "Materials";
 
             if (text.Contains("AUTO") ||
@@ -562,15 +832,21 @@ namespace NEO.Core.Services
                 text.Contains("TYRE") ||
                 text.Contains("SUZUKI") ||
                 text.Contains("TRACTOR") ||
-                text.Contains("VEHICLE"))
+                text.Contains("VEHICLE") ||
+                text.Contains("JEWELL") ||
+                text.Contains("RETAIL") ||
+                text.Contains("FOOTWEAR") ||
+                text.Contains("FASHION"))
                 return "Consumer Discretionary";
 
             if (text.Contains("FOOD") ||
                 text.Contains("CONSUMER") ||
                 text.Contains("FMCG") ||
                 text.Contains("BEVERAGE") ||
-                text.Contains("RETAIL") ||
-                text.Contains("TEXTILE"))
+                text.Contains("TEXTILE") ||
+                text.Contains("SUGAR") ||
+                text.Contains("TEA") ||
+                text.Contains("COFFEE"))
                 return "Consumer Staples";
 
             if (text.Contains("OIL") ||
@@ -583,15 +859,25 @@ namespace NEO.Core.Services
             if (text.Contains("TELECOM") ||
                 text.Contains("COMMUNICATION") ||
                 text.Contains("MEDIA") ||
-                text.Contains("INTERNET"))
+                text.Contains("INTERNET") ||
+                text.Contains("ONLINE"))
                 return "Communication Services";
 
             if (text.Contains("ENGINEERING") ||
                 text.Contains("INDUSTR") ||
                 text.Contains("INFRA") ||
                 text.Contains("CONSTRUCTION") ||
-                text.Contains("LOGISTICS"))
+                text.Contains("LOGISTICS") ||
+                text.Contains("ELECTRICAL") ||
+                text.Contains("CABLE") ||
+                text.Contains("PIPES"))
                 return "Industrials";
+
+            if (text.Contains("REALTY") ||
+                text.Contains("REAL ESTATE") ||
+                text.Contains("DEVELOPER") ||
+                text.Contains("PROPERTIES"))
+                return "Real Estate";
 
             return "Unknown";
         }
