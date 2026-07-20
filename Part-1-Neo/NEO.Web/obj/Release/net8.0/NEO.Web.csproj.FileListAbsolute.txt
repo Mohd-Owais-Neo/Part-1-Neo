@@ -158,3 +158,4 @@ C:\Projects\Part-1-Neo\Part-1-Neo\NEO.Web\obj\Release\net8.0\refint\NEO.Web.dll
 C:\Projects\Part-1-Neo\Part-1-Neo\NEO.Web\obj\Release\net8.0\NEO.Web.pdb
 C:\Projects\Part-1-Neo\Part-1-Neo\NEO.Web\obj\Release\net8.0\NEO.Web.genruntimeconfig.cache
 C:\Projects\Part-1-Neo\Part-1-Neo\NEO.Web\obj\Release\net8.0\ref\NEO.Web.dll
+C:\Projects\Part-1-Neo\Part-1-Neo\NEO.Web\bin\Release\net8.0\nse_bhavcopy.csv

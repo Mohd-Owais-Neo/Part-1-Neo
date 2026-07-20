@@ -761,6 +761,180 @@ namespace NEO.Core.Services
             }
         }
 
+        public async Task<List<Stock>> GetStocksFromBhavcopyAsync(int maxCount = 500)
+        {
+            Console.WriteLine("   → Loading NSE Bhavcopy CSV...");
+
+            var possiblePaths = new List<string>
+    {
+        Path.Combine(AppContext.BaseDirectory, "nse_bhavcopy.csv"),
+        Path.Combine(Directory.GetCurrentDirectory(), "nse_bhavcopy.csv")
+    };
+
+            var home = Environment.GetEnvironmentVariable("HOME");
+
+            if (!string.IsNullOrWhiteSpace(home))
+            {
+                possiblePaths.Add(Path.Combine(home, "site", "wwwroot", "nse_bhavcopy.csv"));
+            }
+
+            string? filePath = null;
+
+            foreach (var path in possiblePaths)
+            {
+                Console.WriteLine($"   → Checking Bhavcopy path: {path}");
+
+                if (File.Exists(path))
+                {
+                    filePath = path;
+                    Console.WriteLine($"   ✅ Bhavcopy file found: {path}");
+                    break;
+                }
+            }
+
+            if (filePath == null)
+                throw new Exception("nse_bhavcopy.csv was not found in Function App package.");
+
+            var csv = await File.ReadAllTextAsync(filePath);
+
+            var lines = csv
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                .Select(x => x.Trim())
+                .ToList();
+
+            if (lines.Count <= 1)
+                throw new Exception("Bhavcopy CSV has no data rows.");
+
+            var headers = SplitCsvLine(lines[0])
+                .Select((h, i) => new { Name = h.Trim().ToUpperInvariant(), Index = i })
+                .ToDictionary(x => x.Name, x => x.Index);
+
+            int GetIndex(params string[] names)
+            {
+                foreach (var name in names)
+                {
+                    var key = name.ToUpperInvariant();
+
+                    if (headers.ContainsKey(key))
+                        return headers[key];
+                }
+
+                return -1;
+            }
+
+            var symbolIndex = GetIndex("SYMBOL", "TCKRSYMB");
+            var seriesIndex = GetIndex("SERIES", "SCTYSRS");
+            var nameIndex = GetIndex("SECURITY", "SECURITY NAME", "CMPNY_NM", "SECURITY_NM");
+            var closeIndex = GetIndex("CLOSE", "CLOSE_PRICE", "CLS_PRIC", "CLOSE_PRICE");
+            var prevCloseIndex = GetIndex("PREVCLOSE", "PREV_CLOSE", "PREV_CL_PR", "PRVS_CLSG_PRIC");
+            var volumeIndex = GetIndex("TOTTRDQTY", "TTL_TRD_QNTY", "VOLUME", "TTL_TRD_QTY");
+            var turnoverIndex = GetIndex("TOTTRDVAL", "TURNOVER", "TTL_TRD_VAL");
+
+            if (symbolIndex < 0)
+                throw new Exception("Bhavcopy CSV does not contain SYMBOL column.");
+
+            if (closeIndex < 0)
+                throw new Exception("Bhavcopy CSV does not contain CLOSE column.");
+
+            var stocks = new List<Stock>();
+
+            foreach (var line in lines.Skip(1))
+            {
+                var cols = SplitCsvLine(line);
+
+                if (cols.Count <= symbolIndex)
+                    continue;
+
+                var symbol = cols[symbolIndex].Trim();
+
+                if (string.IsNullOrWhiteSpace(symbol))
+                    continue;
+
+                var series = seriesIndex >= 0 && cols.Count > seriesIndex
+                    ? cols[seriesIndex].Trim()
+                    : "EQ";
+
+                if (!series.Equals("EQ", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                var stockName = nameIndex >= 0 && cols.Count > nameIndex
+                    ? cols[nameIndex].Trim()
+                    : symbol;
+
+                var currentPrice = closeIndex >= 0 && cols.Count > closeIndex
+                    ? ToDecimal(cols[closeIndex])
+                    : 0m;
+
+                var previousClose = prevCloseIndex >= 0 && cols.Count > prevCloseIndex
+                    ? ToDecimal(cols[prevCloseIndex])
+                    : 0m;
+
+                if (currentPrice <= 0)
+                    continue;
+
+                if (previousClose <= 0)
+                    previousClose = currentPrice;
+
+                var pct1d = previousClose > 0
+                    ? Math.Round(((currentPrice - previousClose) / previousClose) * 100m, 4)
+                    : 0m;
+
+                var volume = volumeIndex >= 0 && cols.Count > volumeIndex
+                    ? ToDecimal(cols[volumeIndex])
+                    : 0m;
+
+                var turnover = turnoverIndex >= 0 && cols.Count > turnoverIndex
+                    ? ToDecimal(cols[turnoverIndex])
+                    : volume * currentPrice;
+
+                var sector = MapSectorFromText(symbol, stockName);
+
+                if (IsForbiddenSector(sector))
+                    continue;
+
+                stocks.Add(new Stock
+                {
+                    Symbol = symbol,
+                    StockName = stockName,
+                    SectorName = sector,
+                    Price = currentPrice,
+                    PreviousClose = previousClose,
+                    Pct1d = pct1d,
+                    Pct5d = 0m,
+                    Pct20d = 0m,
+                    MarketCap = 0m,
+                    PERatio = 0m,
+                    AvgTurnover30d = turnover
+                });
+            }
+
+            stocks = stocks
+                .OrderByDescending(s => s.AvgTurnover30d)
+                .Take(maxCount)
+                .ToList();
+
+            Console.WriteLine($"   ✅ Bhavcopy stocks loaded: {stocks.Count}");
+
+            return stocks;
+        }
+
+        private decimal ToDecimal(string? value)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(value))
+                    return 0m;
+
+                value = value.Replace(",", "").Trim();
+
+                return Convert.ToDecimal(value);
+            }
+            catch
+            {
+                return 0m;
+            }
+        }
+
         // =============================================
         // EXPANDED FALLBACK SEED
         // Used only when Yahoo completely fails

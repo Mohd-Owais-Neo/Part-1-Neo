@@ -42,7 +42,8 @@ namespace NEO.Functions
                 if (!dbOk)
                     throw new Exception("Database connection failed during stock fetch.");
 
-                var stocks = await _marketData.GetStocksFromYahooAsync();
+                //var stocks = await _marketData.GetStocksFromYahooAsync();
+                var stocks = await _marketData.GetStocksFromBhavcopyAsync(maxCount: 500);
 
                 if (stocks.Count < 100)
                 {
