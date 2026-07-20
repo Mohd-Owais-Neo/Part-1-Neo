@@ -45,10 +45,8 @@ namespace NEO.Core.Services
 
             if (nseSymbols.Count == 0)
             {
-                Console.WriteLine("   ⚠️ NSE universe returned 0 symbols — using fallback seed");
-                return GetFallbackSeedStocks()
-                    .Where(s => !IsForbiddenSector(s.SectorName))
-                    .ToList();
+                throw new Exception(
+                    "NSE universe returned 0 symbols. Local CSV was not found/published or online NSE CSV failed.");
             }
 
             Console.WriteLine($"   ✅ NSE EQ universe loaded: {nseSymbols.Count} symbols");
@@ -82,11 +80,9 @@ namespace NEO.Core.Services
 
             if (allStocks.Count == 0)
             {
-                Console.WriteLine("   ⚠️ Yahoo/NSE fetch failed. Falling back to seed data.");
-                Console.WriteLine("   ⚠️ This fallback is not acceptable for 500 stock production fetch");
-                allStocks = GetFallbackSeedStocks()
-                    .Where(s => !IsForbiddenSector(s.SectorName))
-                    .ToList();
+                throw new Exception(
+                    $"NSE universe loaded {nseSymbols.Count} symbols, but Yahoo returned 0 usable quote rows. " +
+                    "Yahoo quote fetch is failing from Azure.");
             }
 
             Console.WriteLine($"   ✅ MarketDataService returned {allStocks.Count} stocks");
@@ -98,27 +94,38 @@ namespace NEO.Core.Services
         {
             try
             {
-                // 1. First try local CSV included in Azure Function package
-                var localPath = Path.Combine(AppContext.BaseDirectory, "nse_eq_symbols.csv");
+                var possiblePaths = new List<string>
+        {
+            Path.Combine(AppContext.BaseDirectory, "nse_eq_symbols.csv"),
+            Path.Combine(Directory.GetCurrentDirectory(), "nse_eq_symbols.csv")
+        };
 
-                if (File.Exists(localPath))
+                var home = Environment.GetEnvironmentVariable("HOME");
+
+                if (!string.IsNullOrWhiteSpace(home))
                 {
-                    Console.WriteLine($"   ✅ Local NSE CSV found: {localPath}");
-
-                    var localCsv = await File.ReadAllTextAsync(localPath);
-                    var localResult = ParseNseCsv(localCsv, maxCount);
-
-                    Console.WriteLine($"   ✅ Local NSE EQ universe loaded: {localResult.Count} symbols");
-
-                    if (localResult.Count > 0)
-                        return localResult;
-                }
-                else
-                {
-                    Console.WriteLine($"   ⚠️ Local NSE CSV not found at: {localPath}");
+                    possiblePaths.Add(Path.Combine(home, "site", "wwwroot", "nse_eq_symbols.csv"));
                 }
 
-                // 2. If local file is missing, fallback to NSE online CSV
+                foreach (var path in possiblePaths)
+                {
+                    Console.WriteLine($"   → Checking NSE CSV path: {path}");
+
+                    if (File.Exists(path))
+                    {
+                        Console.WriteLine($"   ✅ Local NSE CSV found: {path}");
+
+                        var csv = await File.ReadAllTextAsync(path);
+                        var localResult = ParseNseCsv(csv, maxCount);
+
+                        Console.WriteLine($"   ✅ Local NSE EQ universe loaded: {localResult.Count} symbols");
+
+                        if (localResult.Count > 0)
+                            return localResult;
+                    }
+                }
+
+                Console.WriteLine("   ⚠️ Local NSE CSV not found in any expected path.");
                 Console.WriteLine("   → Trying NSE online CSV...");
 
                 var url = "https://nsearchives.nseindia.com/content/equities/sec_list.csv";
@@ -138,9 +145,8 @@ namespace NEO.Core.Services
 
                 response.EnsureSuccessStatusCode();
 
-                var csv = await response.Content.ReadAsStringAsync();
-
-                var onlineResult = ParseNseCsv(csv, maxCount);
+                var onlineCsv = await response.Content.ReadAsStringAsync();
+                var onlineResult = ParseNseCsv(onlineCsv, maxCount);
 
                 Console.WriteLine($"   ✅ Online NSE EQ universe loaded: {onlineResult.Count} symbols");
 
